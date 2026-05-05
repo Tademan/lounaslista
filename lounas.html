@@ -1,0 +1,141 @@
+
+    <!DOCTYPE html>
+    <html lang="fi">
+    <head>
+        <meta charset="UTF-8">
+        <title>Lounas Pitäjänmäki 05.05.2026</title>
+        <style>
+            body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+            h1 { text-align: center; color: #1a1a1a; margin-bottom: 30px; }
+            .grid { 
+                display: flex; 
+                flex-wrap: wrap; 
+                gap: 15px; 
+                justify-content: center; 
+            }
+            .card { 
+                background: white; 
+                width: calc(25% - 20px); 
+                min-width: 250px; 
+                border-radius: 12px; 
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .card-header { 
+                background: #2c3e50; 
+                color: white; 
+                padding: 15px; 
+                position: relative;
+            }
+            .card-header h2 { margin: 0; font-size: 1.1em; }
+            .copy-btn {
+                position: absolute;
+                right: 10px;
+                top: 50%;
+                transform: translateY(-50%);
+                background: #34495e;
+                color: white;
+                border: 1px solid #ffffff44;
+                padding: 5px 10px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.75em;
+            }
+            .copy-btn:hover { background: #1abc9c; }
+            .card-content { padding: 15px; flex-grow: 1; font-size: 0.85em; color: #444; }
+            ul { list-style: none; padding: 0; margin: 0; }
+            li { margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #f8f8f8; }
+            strong { color: #d35400; display: block; margin-top: 8px; }
+            .card-footer { padding: 10px; background: #fafafa; text-align: center; border-top: 1px solid #eee; }
+            .card-footer a { font-size: 0.8em; color: #3498db; text-decoration: none; font-weight: bold; }
+            
+            @media (max-width: 1200px) { .card { width: calc(33.33% - 20px); } }
+            @media (max-width: 900px) { .card { width: calc(50% - 20px); } }
+            @media (max-width: 600px) { .card { width: 100%; } }
+        </style>
+        <script>
+            function copyToClipboard(id) {
+                const text = document.getElementById(id).innerText;
+                const tempInput = document.createElement("textarea");
+                tempInput.value = text.replace(/• /g, "");
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand("copy");
+                document.body.removeChild(tempInput);
+                
+                const btn = event.target;
+                const originalText = btn.innerText;
+                btn.innerText = "Kopioitu!";
+                setTimeout(() => btn.innerText = originalText, 2000);
+            }
+        </script>
+    </head>
+    <body>
+        <h1>🍴 Lounaslistat Pitäjänmäki 05.05.2026</h1>
+        <div class="grid">
+    
+            <div class="card">
+                <div class="card-header">
+                    <h2>Tellus</h2>
+                    <button class="copy-btn" onclick="copyToClipboard('menu-0')">Kopioi</button>
+                </div>
+                <div class="card-content" id="menu-0"><ul><li><strong>Kahviosta</strong></li><li>• Kaura (M,L,Veg)- ja Talon kaurapuuroa (L,G), Lämmintä Pekonipiirakkaa, Mustaherukka-kookostuorepuuroa, Chiavanukasta, pakattuja välipaloja</li><li>• Iltapäivällä kahviosta klo. 13 - 14 Vohveleita mansikkahilloa tai banaani-kinuskitäytteellä & kermavaahdolla</li><li><strong>Kasviskeitto- & maustebuffet</strong></li><li>• Linssisosekeittoa (*, A, G, ILM, L, VS)</li><li>• Makuöljyjä ja Paahdettuja siemeniä (G, L, M, Veg)</li><li><strong>Kasvisruoka</strong></li><li>• Juurespyöryköitä (*, A, G, ILM, L, M)</li><li>• Ruohosipuli-tillijogurttia (A, G, L, ILM)</li><li><strong>Kasvisruoka</strong></li><li>• Vönerkorma, suolapähkinää ja korianteria (A, ILM, L, M, Veg, VS)</li><li>• Riisiä (G, L, M, Veg)</li><li><strong>Lounas</strong></li><li>• Meidän keittiön kirjolohipihvejä ja tuoretta tilliä (*, A, L, M)</li><li>• Ruohosipuli-tillijogurttia (A, G, ILM, L)</li><li>• Annanperunoita (A, G, ILM, L, M, Veg)</li><li>• Paahdettuja kauden kasviksia (A, L, G, M, Veg)</li><li><strong>Lounas</strong></li><li>• Sinappirelish-kermaviiliä (A, G, ILM, L)</li><li>• Perunamuusia (*, A, G, ILM, L)</li><li>• Uunimakkara sipuli-juustotäytteellä (A, G, L)</li><li><strong>Jälkiruoka</strong></li><li>• Pavlova (A, L, G)</li></ul></div>
+                <div class="card-footer"><a href="https://www.compass-group.fi/ravintolat-ja-ruokalistat/foodco/kaupungit/helsinki/tellus/" target="_blank">Lähde →</a></div>
+            </div>
+        
+            <div class="card">
+                <div class="card-header">
+                    <h2>POR</h2>
+                    <button class="copy-btn" onclick="copyToClipboard('menu-1')">Kopioi</button>
+                </div>
+                <div class="card-content" id="menu-1"><ul><li>• Fried salmon (m,g), mashed potatoes (l,g), shrimp nordic sour cream sauce (l,g) 7.85</li><li>• Cauliflower wings (m,g), vegan ranch dip (m,g,vs), french fries (m,g),</li><li>• tzatziki slaw (m,g,vs) Vegan 7.85</li><li>• Italian style meatball and pasta soup (m,se,ka, contains pork) 6.70</li><li>• Potato gnocchis in fresh spinach sauce (l), parmesan flakes (l,g) 7.85</li><li>• NEW! White chocolate mousse (g, contains gelatine (pork)), raspberry sauce (l,g) 1.10</li><li>• Take away-salad: Tuna and shrimp salad (m,g) 7.85</li></ul></div>
+                <div class="card-footer"><a href="https://por.fi/menu/" target="_blank">Lähde →</a></div>
+            </div>
+        
+            <div class="card">
+                <div class="card-header">
+                    <h2>Factory</h2>
+                    <button class="copy-btn" onclick="copyToClipboard('menu-2')">Kopioi</button>
+                </div>
+                <div class="card-content" id="menu-2"><ul><li style='color:gray'>Ei listaa saatavilla.</li></ul></div>
+                <div class="card-footer"><a href="https://ravintolafactory.com/lounasravintolat/ravintolat/helsinki-pitajanmaki/" target="_blank">Lähde →</a></div>
+            </div>
+        
+            <div class="card">
+                <div class="card-header">
+                    <h2>Antell</h2>
+                    <button class="copy-btn" onclick="copyToClipboard('menu-3')">Kopioi</button>
+                </div>
+                <div class="card-content" id="menu-3"><ul><li>• Pozole rojo – possua meksikolaisittain</li><li>• Moussaka – munakoiso-jauhelihavuokaa</li><li>• Herkkusieni-cashewkormaa</li><li>• Kasvisborssikeittoa ja smetanaa</li><li>• Paahdettua ruusukaalia</li><li>• Basmatiriisiä</li><li>• Mustikkarahkaa</li><li>• Kahvi</li><li>• Pulled chicken</li><li>• Caesar-marinoituja katkarapuja</li></ul></div>
+                <div class="card-footer"><a href="https://www.antell.fi/lounas/helsinki/kuohu/" target="_blank">Lähde →</a></div>
+            </div>
+        
+            <div class="card">
+                <div class="card-header">
+                    <h2>Herkkuhetki</h2>
+                    <button class="copy-btn" onclick="copyToClipboard('menu-4')">Kopioi</button>
+                </div>
+                <div class="card-content" id="menu-4"><ul><li><strong>Päivän erikoissalaatti</strong></li><li>• Raikas kesäsalaatti (VL, G)</li><li>• Meksikolainen nachosalaatti (M, G, VE)</li><li><strong>Päivän keitto</strong></li><li>• Tuore tomaatti-basilikakeitto (M, G, VE)</li><li><strong>Lämpimät pääruoat</strong></li><li>• Herkullinen tandoori chicken tikka masala (L, G, VS) basmatiriisi (M, G, VE) raita-jogurttikastike (L, G)</li><li>• Yön yli haudutettua naudan sisäpaistia portviinikastikkeessa (M, G) lohkoperunat (M, G)</li><li>• Kinkku-feta-parsapiirakka (L)</li><li><strong>Vegaaninen</strong></li><li>• Caponata Siciliana valkopavulla (M, G, VS, VE, sis. pinjansiemeniä)</li><li><strong>Artesaanipizza</strong></li><li>• Tulinen salamipizza (VL)</li><li>• Kasvispizza (VL)</li><li><strong>Jälkiruoka</strong></li><li>• Herkkuhetken jäätelöbaari (L, G)</li></ul></div>
+                <div class="card-footer"><a href="https://www.lounasravintolaherkkuhetki.fi/" target="_blank">Lähde →</a></div>
+            </div>
+        
+            <div class="card">
+                <div class="card-header">
+                    <h2>Faundori</h2>
+                    <button class="copy-btn" onclick="copyToClipboard('menu-5')">Kopioi</button>
+                </div>
+                <div class="card-content" id="menu-5"><ul><li><b>[Lounas]</b> Kanaa Tikka Masala ja villiriisiä, naan-leipää (M) ja valkosipuli-yrttijogurttia (L, G)</li><li><b>[Lounas]</b> Makaronilaatikkoa</li><li><b>[Kasvislounas]</b> Kasvispyöryköitä ja yrttijogurttia, villiriisiä</li><li><b>[Keitto]</b> Palsternakkasosekeittoa</li><li><b>[Salaatti]</b> Salaattibaari</li><li><b>[Jälkiruoka]</b> Vadelmakiisseliä ja kermavaahtoa (L, G)</li><li><b>[Grilli]</b> Juustohampurilainen ja tikkuperunat</li></ul></div>
+                <div class="card-footer"><a href="https://ravintolapalvelut.iss.fi/ravintola-faundori?lang=fi" target="_blank">Lähde →</a></div>
+            </div>
+        
+            <div class="card">
+                <div class="card-header">
+                    <h2>Lasihelmi</h2>
+                    <button class="copy-btn" onclick="copyToClipboard('menu-6')">Kopioi</button>
+                </div>
+                <div class="card-content" id="menu-6"><ul><li>• Rapeaa kanaa Gochujang L,M,A</li><li>• Paistettua riisiä ja vihanneksia L,M,G,A,Veg</li><li>• Parmesanmajoneesia A,L</li><li>• Perinteisiä silakkapihvejä</li><li>• Perunamuusia</li><li>• Sitruunaa</li><li>• Tillikermaviiliä</li><li>• Välimeren halloumipiirakkaa</li><li>• Mausteista linssisosekeittoa</li><li>• Täyteläistä porkkanasosekeittoa L,G,A</li><li>• Paahdettuja juureksia L,M,G,Veg</li><li>• Raparperi-kerrosrahkaa L,G,A</li></ul></div>
+                <div class="card-footer"><a href="https://www.compass-group.fi/ravintolat-ja-ruokalistat/foodco/kaupungit/helsinki/lasihelmi/" target="_blank">Lähde →</a></div>
+            </div>
+        </div></body></html>
