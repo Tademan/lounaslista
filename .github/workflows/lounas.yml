@@ -1,0 +1,33 @@
+name: Päivitä Lounaslista
+
+on:
+  schedule:
+    # Ajetaan arkipäivisin (1-5) klo 05:00 UTC-aikaa (joka on Suomen kesäajassa klo 08:00)
+    - cron: '0 5 * * 1-5'
+  workflow_dispatch: # Tämä lisää napin, josta voit ajaa koodin myös manuaalisesti
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TZ: 'Europe/Helsinki' # Pakotetaan Suomen aika
+
+    steps:
+      - name: Hae koodi
+        uses: actions/checkout@v4
+
+      - name: Asenna Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Asenna riippuvuudet
+        run: pip install -r requirements.txt
+
+      - name: Aja skripti
+        run: python lounaskaikki2.py
+
+      - name: Tallenna luotu HTML GitHubiin
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Automaattinen lounaslistan päivitys"
