@@ -1,2 +1,2 @@
 # lounaslista
-Pitäjänmäen lounaat
+Pitäjänmäen parhaat lounaat
