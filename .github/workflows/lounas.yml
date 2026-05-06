@@ -2,9 +2,8 @@ name: Päivitä Lounaslista
 
 on:
   schedule:
-    # Ajetaan arkipäivisin (1-5) klo 05:00 UTC-aikaa (Suomen ajassa klo 08:00)
-    - cron: '0 5 * * 1-5'
-  workflow_dispatch: # Sallii koodin ajamisen käsin napista
+    - cron: '0 5-10 * * 1-5'
+  workflow_dispatch:
 
 permissions:
   contents: write # Varmistaa, että GitHub Actions saa tallentaa lounas.html-tiedoston
