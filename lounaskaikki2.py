@@ -27,35 +27,48 @@ def aseta_suomi_lokaali():
 
 def hae_herkkuhetki():
     import re
+    import datetime
     url = "https://herkkuhetkitali.fi/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15, verify=False)
         res.encoding = 'utf-8'
         
-        # Noudetaan tämän päivän päivämäärä muodossa D.M.YYYY (esim. 30.3.2026)
-        # Huom: Herkkuhetken JS ei käytä etunollia päivissä/kuukausissa
-        tanaan_pvm = f"{datetime.date.today().day}.{datetime.date.today().month}.{datetime.date.today().year}"
+        # Formatoi päivämäärä tarkalleen HTML-skriptin muotoon (esim. "11.05.2026")
+        tanaan_pvm = datetime.date.today().strftime("%d.%m.%Y")
         
-        # Herkkuhetken ruokalista on nykyään upotettuna suoraan JavaScript-muuttujaan (weeklyMenu).
-        # Eristetään kuluvan päivän lohko tekstimassasta:
-        osa = res.text.split(f'date:"{tanaan_pvm}"')
-        if len(osa) < 2: return []
-        
-        # Leikataan loppuosa pois seuraavan päivän kohdalta, jotta emme hae vääriä ruokia
-        paiva_str = osa[1].split('dayName:')[0] 
+        # Jaetaan sivun tekstimassa päivälohkoihin "{id:0,dayName:" perusteella
+        # Tämä estää sekaantumisen rakenteen sisäisiin sulkuihin.
+        days_data = re.split(r'\{id:\d+,dayName:', res.text)
         
         tulos = []
-        # Etsitään kaikki kategoriat ja niiden sisältämät ruoat säännöllisillä lausekkeilla
-        section_matches = re.findall(r'title:"([^"]+)",items:\[(.*?)\]', paiva_str)
-        for title, items_str in section_matches:
-            tulos.append(f"<strong>{title}</strong>")
-            # Yksittäiset ruoat on eroteltu lainausmerkein
-            items = re.findall(r'"([^"]+)"', items_str)
-            for item in items:
-                tulos.append(f"• {item}")
         
-        return tulos
-    except: 
+        for day_block in days_data:
+            # Etsitään vain se päivälohko, jossa on kuluva päivämäärä
+            if f'date:"{tanaan_pvm}"' in day_block:
+                
+                # Haetaan säännöllisellä lausekkeella kaikki (Otsikko) ja [Ruokalistat]
+                sections = re.findall(r'title:"([^"]+)",items:\[(.*?)\]', day_block)
+                
+                for title, items_raw in sections:
+                    tulos.append(f"<strong>{title}</strong>")
+                    
+                    # Haetaan yksittäiset ruoat lainausmerkkien sisältä
+                    ruoat = re.findall(r'"([^"]+)"', items_raw)
+                    for r in ruoat:
+                        # Puhdistetaan mahdolliset Unicode-merkit (kuten \u002F)
+                        try:
+                            r_clean = r.encode().decode('unicode-escape')
+                        except:
+                            r_clean = r
+                        tulos.append(f"• {r_clean}")
+                
+                # Kun tämän päivän data on käsitelty ja palautettu, ei tarvitse jatkaa muihin päiviin
+                return tulos
+                
+        return []
+        
+    except Exception as e:
+        print(f"Virhe Herkkuhetken haussa: {e}")
         return []
 
 def hae_tellus():
