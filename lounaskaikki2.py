@@ -28,43 +28,103 @@ def aseta_suomi_lokaali():
 def hae_herkkuhetki():
     import re
     import datetime
+    import base64
+    
     url = "https://herkkuhetkitali.fi/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15, verify=False)
         res.encoding = 'utf-8'
+        html = res.text
         
-        # Formatoi päivämäärä tarkalleen HTML-skriptin muotoon (esim. "11.05.2026")
-        tanaan_pvm = datetime.date.today().strftime("%d.%m.%Y")
+        tanaan = datetime.date.today()
+        pvm_vaihtoehdot = [
+            f"{tanaan.day}.{tanaan.month}.{tanaan.year}",
+            tanaan.strftime("%d.%m.%Y"),
+            f"{tanaan.day}.{tanaan.month}.",
+            tanaan.strftime("%d.%m.")
+        ]
+        viikonpaivat = ["Maanantai", "Tiistai", "Keskiviikko", "Torstai", "Perjantai"]
+        vp_tanaan = viikonpaivat[tanaan.weekday()] if tanaan.weekday() < 5 else None
         
-        # Jaetaan sivun tekstimassa päivälohkoihin "{id:0,dayName:" perusteella
-        # Tämä estää sekaantumisen rakenteen sisäisiin sulkuihin.
-        days_data = re.split(r'\{id:\d+,dayName:', res.text)
+        menu_data = ""
         
-        tulos = []
+        # 1. Yritetään lukea data suoraan html-tekstistä
+        if 'weeklyMenu' in html and 'dayName' in html:
+            menu_data = html
+        else:
+            # 2. Yritetään purkaa Base64
+            b64_matches = re.findall(r'base64,([^"\']+)', html)
+            for b64 in b64_matches:
+                b64_clean = re.sub(r'\s+', '', b64)
+                b64_clean += "=" * ((4 - len(b64_clean) % 4) % 4)
+                try:
+                    decoded = base64.b64decode(b64_clean).decode('utf-8')
+                    if 'weeklyMenu' in decoded:
+                        menu_data = decoded
+                        break
+                except:
+                    continue
+
+        # 3. Yritetään kaivaa ulkoisista JS-tiedostoista (hätävara)
+        if not menu_data:
+            js_files = re.findall(r'<script[^>]+src="([^"]+\.js[^"]*)"', html)
+            for js_url in js_files:
+                if not js_url.startswith('http'):
+                    js_url = "https://herkkuhetkitali.fi" + js_url
+                try:
+                    js_res = requests.get(js_url, headers=HEADERS, timeout=5, verify=False)
+                    if 'weeklyMenu' in js_res.text:
+                        menu_data = js_res.text
+                        break
+                except:
+                    continue
+
+        if not menu_data:
+            return []
+
+        # -- ÄÄKKÖSTEN KORJAUSTYÖKALU --
+        def korjaa_teksti(teksti):
+            t = teksti.replace('\\/', '/')
+            try:
+                t = t.encode().decode('unicode-escape')
+            except:
+                pass
+            try:
+                # Korjataan rikkinäinen utf-8 -> latin-1 tuplakoodaus (Ã¤ -> ä)
+                t = t.encode('latin-1').decode('utf-8')
+            except:
+                pass
+            return t.strip()
+
+        # Varsinainen datan parsinta
+        days_data = re.split(r'\{id:\s*\d+\s*,\s*dayName:', menu_data)
         
-        for day_block in days_data:
-            # Etsitään vain se päivälohko, jossa on kuluva päivämäärä
-            if f'date:"{tanaan_pvm}"' in day_block:
+        for i, day_block in enumerate(days_data):
+            if i == 0: continue
+            
+            date_match = re.search(r'date\s*:\s*"([^"]+)"', day_block)
+            lohko_pvm = date_match.group(1) if date_match else ""
+            
+            dayname_match = re.search(r'^\s*"([^"]+)"', day_block)
+            lohko_vp = dayname_match.group(1) if dayname_match else ""
+            
+            is_today = any(pvm == lohko_pvm for pvm in pvm_vaihtoehdot)
+            if not is_today and vp_tanaan and vp_tanaan.lower() in lohko_vp.lower():
+                is_today = True
                 
-                # Haetaan säännöllisellä lausekkeella kaikki (Otsikko) ja [Ruokalistat]
-                sections = re.findall(r'title:"([^"]+)",items:\[(.*?)\]', day_block)
-                
+            if is_today:
+                tulos = []
+                sections = re.findall(r'title\s*:\s*"([^"]+)"\s*,\s*items\s*:\s*\[(.*?)\]', day_block)
                 for title, items_raw in sections:
-                    tulos.append(f"<strong>{title}</strong>")
+                    title_clean = korjaa_teksti(title)
+                    tulos.append(f"<strong>{title_clean}</strong>")
                     
-                    # Haetaan yksittäiset ruoat lainausmerkkien sisältä
                     ruoat = re.findall(r'"([^"]+)"', items_raw)
                     for r in ruoat:
-                        # Puhdistetaan mahdolliset Unicode-merkit (kuten \u002F)
-                        try:
-                            r_clean = r.encode().decode('unicode-escape')
-                        except:
-                            r_clean = r
-                        tulos.append(f"• {r_clean}")
+                        tulos.append(f"• {korjaa_teksti(r)}")
                 
-                # Kun tämän päivän data on käsitelty ja palautettu, ei tarvitse jatkaa muihin päiviin
                 return tulos
-                
+        
         return []
         
     except Exception as e:
@@ -77,7 +137,6 @@ def hae_tellus():
         res = requests.get(url, headers=HEADERS, timeout=10, verify=False)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # Tellus käyttää nykyään sivullaan JSON-rakennedataa, aivan kuten Lasihelmi.
         script = soup.find('script', id='restaurant-structured-data')
         if not script: return []
         
@@ -85,13 +144,11 @@ def hae_tellus():
         pvm = datetime.date.today().strftime("%Y-%m-%d")
         tulos = []
         
-        # Haetaan oikea päivä päivien listasta
         paivat = data.get('hasMenu', {}).get('hasMenuSection', [])
         paiva_data = next((p for p in paivat if p.get('validFrom') == pvm), None)
         
         if not paiva_data: return []
         
-        # Telluksella on lounaat jaettu vielä erillisiin alikategorioihin (hasMenuSection)
         for kategoria in paiva_data.get('hasMenuSection', []):
             kat_nimi = kategoria.get('name', '').strip()
             if kat_nimi:
@@ -150,7 +207,6 @@ def hae_antell():
         if not paneeli: return []
         
         tulos = []
-        # Etsitään suoraan kaikki ruokalajit (napit), jolloin vältytään sisäkkäisten listojen tuplilta
         nappulat = paneeli.find_all('button', class_='accordion__button')
         
         for btn in nappulat:
@@ -159,6 +215,7 @@ def hae_antell():
         return tulos
     except: 
         return []
+
 def hae_faundori():
     url = "https://ravintolapalvelut.iss.fi/ravintola-faundori?lang=fi"
     try:
@@ -224,7 +281,7 @@ def luo_html_raportti(data_lista, pvm):
                 padding: 15px; 
                 position: relative;
             }}
-            .card-header h2 {{ margin: 0; font-size: 1.1em; }}
+            .card-header h2 {{ margin: 0; font-size: 1.1em; padding-right: 60px; }}
             .copy-btn {{
                 position: absolute;
                 right: 10px;
@@ -251,16 +308,18 @@ def luo_html_raportti(data_lista, pvm):
             @media (max-width: 600px) {{ .card {{ width: 100%; }} }}
         </style>
         <script>
-            function copyToClipboard(id) {{
+            function copyToClipboard(id, restaurantName, btn) {{
                 const text = document.getElementById(id).innerText;
                 const tempInput = document.createElement("textarea");
-                tempInput.value = text.replace(/• /g, "");
+                
+                // Liitetään ravintolan nimi ja sen alle puhdistettu ruokalista
+                tempInput.value = restaurantName + "\\n" + text.replace(/• /g, "");
+                
                 document.body.appendChild(tempInput);
                 tempInput.select();
                 document.execCommand("copy");
                 document.body.removeChild(tempInput);
                 
-                const btn = event.target;
                 const originalText = btn.innerText;
                 btn.innerText = "Kopioitu!";
                 setTimeout(() => btn.innerText = originalText, 2000);
@@ -275,11 +334,15 @@ def luo_html_raportti(data_lista, pvm):
     for i, r in enumerate(data_lista):
         safe_id = f"menu-{i}"
         rivit_html = "".join([f"<li>{rivi}</li>" for rivi in r["rivit"]]) if r["rivit"] else "<li style='color:gray'>Ei listaa saatavilla.</li>"
+        
+        # Suojataan ravintolan nimen heittomerkit JavaScriptiä varten
+        safe_name = r['nimi'].replace("'", "\\'")
+        
         html_template += f"""
             <div class="card">
                 <div class="card-header">
                     <h2>{r['nimi']}</h2>
-                    <button class="copy-btn" onclick="copyToClipboard('{safe_id}')">Kopioi</button>
+                    <button class="copy-btn" onclick="copyToClipboard('{safe_id}', '{safe_name}', this)">Kopioi</button>
                 </div>
                 <div class="card-content" id="{safe_id}"><ul>{rivit_html}</ul></div>
                 <div class="card-footer"><a href="{r['url']}" target="_blank">Lähde →</a></div>
@@ -312,7 +375,13 @@ def aja_haku():
     keratty_data = []
     for nimi, fn, url in ravintolat:
         print(f" -> Haetaan {nimi}...")
-        keratty_data.append({"nimi": nimi, "url": url, "rivit": fn()})
+        
+        # Lisätään "tarjotin saatavilla" -teksti valituille ravintoloille
+        nayton_nimi = nimi
+        if nimi in ["Tellus", "POR", "Lasihelmi"]:
+            nayton_nimi += " (tarjotin saatavilla)"
+            
+        keratty_data.append({"nimi": nayton_nimi, "url": url, "rivit": fn()})
 
     polku = luo_html_raportti(keratty_data, tanaan)
     print(f"\nVALMIS! HTML-tiedosto luotu: {polku}")
