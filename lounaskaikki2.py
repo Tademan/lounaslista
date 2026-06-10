@@ -27,16 +27,31 @@ def aseta_suomi_lokaali():
 
 def hae_herkkuhetki():
     import re
-    import datetime
     import base64
+    import requests
+    import datetime
     
     url = "https://herkkuhetkitali.fi/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+        
+        # 1. TARKISTETAAN ESTÄÄKÖ PALVELIN GITHUBIN (IP-ESTO)
+        if res.status_code != 200:
+            print(f"Herkkuhetki esti yhteyden (Status: {res.status_code})")
+            return [f"Yhteys estettiin (Virhe {res.status_code})"]
+            
         res.encoding = 'utf-8'
         html = res.text
         
-        tanaan = datetime.date.today()
+        # 2. PAKOTETAAN AIKA SUOMEN AIKAVYÖHYKKEESEEN GITHUBIA VARTEN
+        try:
+            from zoneinfo import ZoneInfo
+            tanaan = datetime.datetime.now(ZoneInfo("Europe/Helsinki")).date()
+        except ImportError:
+            # Varakeino jos käytössä vanhempi Python-versio
+            tanaan = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3))).date()
+
+        # ... (Tästä eteenpäin koodi jatkuu täsmälleen samana kuin ennenkin)
         pvm_vaihtoehdot = [
             f"{tanaan.day}.{tanaan.month}.{tanaan.year}",
             tanaan.strftime("%d.%m.%Y"),
