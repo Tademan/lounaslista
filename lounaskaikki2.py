@@ -53,7 +53,7 @@ def hae_herkkuhetki():
             menu_data = html
         else:
             # 2. Yritetään purkaa Base64
-            b64_matches = re.findall(r'base64,([^"\']+)', html)
+            b64_matches = re.findall(r'base64,([^"\'\s>]+)', html)
             for b64 in b64_matches:
                 b64_clean = re.sub(r'\s+', '', b64)
                 b64_clean += "=" * ((4 - len(b64_clean) % 4) % 4)
@@ -250,86 +250,87 @@ def hae_lasihelmi():
 # --- HTML GENEROINTI ---
 
 def luo_html_raportti(data_lista, pvm):
-    html_template = f"""
-    <!DOCTYPE html>
-    <html lang="fi">
-    <head>
-        <meta charset="UTF-8">
-        <title>Lounas Pitäjänmäki {pvm}</title>
-        <style>
-            body {{ font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }}
-            h1 {{ text-align: center; color: #1a1a1a; margin-bottom: 30px; }}
-            .grid {{ 
-                display: flex; 
-                flex-wrap: wrap; 
-                gap: 15px; 
-                justify-content: center; 
-            }}
-            .card {{ 
-                background: white; 
-                width: calc(25% - 20px); 
-                min-width: 250px; 
-                border-radius: 12px; 
-                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-                display: flex;
-                flex-direction: column;
-                overflow: hidden;
-            }}
-            .card-header {{ 
-                background: #2c3e50; 
-                color: white; 
-                padding: 15px; 
-                position: relative;
-            }}
-            .card-header h2 {{ margin: 0; font-size: 1.1em; padding-right: 60px; }}
-            .copy-btn {{
-                position: absolute;
-                right: 10px;
-                top: 50%;
-                transform: translateY(-50%);
-                background: #34495e;
-                color: white;
-                border: 1px solid #ffffff44;
-                padding: 5px 10px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 0.75em;
-            }}
-            .copy-btn:hover {{ background: #1abc9c; }}
-            .card-content {{ padding: 15px; flex-grow: 1; font-size: 0.85em; color: #444; }}
-            ul {{ list-style: none; padding: 0; margin: 0; }}
-            li {{ margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #f8f8f8; }}
-            strong {{ color: #d35400; display: block; margin-top: 8px; }}
-            .card-footer {{ padding: 10px; background: #fafafa; text-align: center; border-top: 1px solid #eee; }}
-            .card-footer a {{ font-size: 0.8em; color: #3498db; text-decoration: none; font-weight: bold; }}
+    ajoaika = datetime.datetime.now().strftime("%H:%M:%S")
+    html_template = f'''<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <title>Lounas Pitäjänmäki {pvm}</title>
+    <style>
+        body {{ font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }}
+        h1 {{ text-align: center; color: #1a1a1a; margin-bottom: 5px; }}
+        .timestamp {{ text-align: center; color: #666; font-size: 0.9em; margin-bottom: 30px; font-style: italic; }}
+        .grid {{ 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 15px; 
+            justify-content: center; 
+        }}
+        .card {{ 
+            background: white; 
+            width: calc(25% - 20px); 
+            min-width: 250px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }}
+        .card-header {{ 
+            background: #2c3e50; 
+            color: white; 
+            padding: 15px; 
+            position: relative;
+        }}
+        .card-header h2 {{ margin: 0; font-size: 1.1em; padding-right: 60px; }}
+        .copy-btn {{
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #34495e;
+            color: white;
+            border: 1px solid #ffffff44;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75em;
+        }}
+        .copy-btn:hover {{ background: #1abc9c; }}
+        .card-content {{ padding: 15px; flex-grow: 1; font-size: 0.85em; color: #444; }}
+        ul {{ list-style: none; padding: 0; margin: 0; }}
+        li {{ margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #f8f8f8; }}
+        strong {{ color: #d35400; display: block; margin-top: 8px; }}
+        .card-footer {{ padding: 10px; background: #fafafa; text-align: center; border-top: 1px solid #eee; }}
+        .card-footer a {{ font-size: 0.8em; color: #3498db; text-decoration: none; font-weight: bold; }}
+        
+        @media (max-width: 1200px) {{ .card {{ width: calc(33.33% - 20px); }} }}
+        @media (max-width: 900px) {{ .card {{ width: calc(50% - 20px); }} }}
+        @media (max-width: 600px) {{ .card {{ width: 100%; }} }}
+    </style>
+    <script>
+        function copyToClipboard(id, restaurantName, btn) {{
+            const text = document.getElementById(id).innerText;
+            const tempInput = document.createElement("textarea");
             
-            @media (max-width: 1200px) {{ .card {{ width: calc(33.33% - 20px); }} }}
-            @media (max-width: 900px) {{ .card {{ width: calc(50% - 20px); }} }}
-            @media (max-width: 600px) {{ .card {{ width: 100%; }} }}
-        </style>
-        <script>
-            function copyToClipboard(id, restaurantName, btn) {{
-                const text = document.getElementById(id).innerText;
-                const tempInput = document.createElement("textarea");
-                
-                // Liitetään ravintolan nimi ja sen alle puhdistettu ruokalista
-                tempInput.value = restaurantName + "\\n" + text.replace(/• /g, "");
-                
-                document.body.appendChild(tempInput);
-                tempInput.select();
-                document.execCommand("copy");
-                document.body.removeChild(tempInput);
-                
-                const originalText = btn.innerText;
-                btn.innerText = "Kopioitu!";
-                setTimeout(() => btn.innerText = originalText, 2000);
-            }}
-        </script>
-    </head>
-    <body>
-        <h1>🍴 Lounaslistat Pitäjänmäki {pvm}</h1>
-        <div class="grid">
-    """
+            // Liitetään ravintolan nimi ja sen alle puhdistettu ruokalista
+            tempInput.value = restaurantName + "\\n" + text.replace(/• /g, "");
+            
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand("copy");
+            document.body.removeChild(tempInput);
+            
+            const originalText = btn.innerText;
+            btn.innerText = "Kopioitu!";
+            setTimeout(() => btn.innerText = originalText, 2000);
+        }}
+    </script>
+</head>
+<body>
+    <h1>🍴 Lounaslistat Pitäjänmäki {pvm}</h1>
+    <div class="timestamp">Päivitetty (skripti ajettu): {pvm} klo {ajoaika}</div>
+    <div class="grid">'''
 
     for i, r in enumerate(data_lista):
         safe_id = f"menu-{i}"
@@ -338,18 +339,20 @@ def luo_html_raportti(data_lista, pvm):
         # Suojataan ravintolan nimen heittomerkit JavaScriptiä varten
         safe_name = r['nimi'].replace("'", "\\'")
         
-        html_template += f"""
-            <div class="card">
-                <div class="card-header">
-                    <h2>{r['nimi']}</h2>
-                    <button class="copy-btn" onclick="copyToClipboard('{safe_id}', '{safe_name}', this)">Kopioi</button>
-                </div>
-                <div class="card-content" id="{safe_id}"><ul>{rivit_html}</ul></div>
-                <div class="card-footer"><a href="{r['url']}" target="_blank">Lähde →</a></div>
+        html_template += f'''
+        <div class="card">
+            <div class="card-header">
+                <h2>{r['nimi']}</h2>
+                <button class="copy-btn" onclick="copyToClipboard('{safe_id}', '{safe_name}', this)">Kopioi</button>
             </div>
-        """
+            <div class="card-content" id="{safe_id}"><ul>{rivit_html}</ul></div>
+            <div class="card-footer"><a href="{r['url']}" target="_blank">Lähde &rarr;</a></div>
+        </div>'''
 
-    html_template += "</div></body></html>"
+    html_template += '''
+    </div>
+</body>
+</html>'''
     
     with open("lounas.html", "w", encoding="utf-8") as f:
         f.write(html_template)
@@ -367,7 +370,7 @@ def aja_haku():
         ("POR", hae_por, "https://por.fi/menu/"),
         ("Factory", hae_factory, "https://ravintolafactory.com/lounasravintolat/ravintolat/helsinki-pitajanmaki/"),
         ("Antell", hae_antell, "https://www.antell.fi/lounas/helsinki/kuohu/"),
-        ("Herkkuhetki", hae_herkkuhetki, "https://www.lounasravintolaherkkuhetki.fi/"),
+        ("Herkkuhetki", hae_herkkuhetki, "https://herkkuhetkitali.fi/"),
         ("Faundori", hae_faundori, "https://ravintolapalvelut.iss.fi/ravintola-faundori?lang=fi"),
         ("Lasihelmi", hae_lasihelmi, "https://www.compass-group.fi/ravintolat-ja-ruokalistat/foodco/kaupungit/helsinki/lasihelmi/")
     ]
@@ -375,8 +378,6 @@ def aja_haku():
     keratty_data = []
     for nimi, fn, url in ravintolat:
         print(f" -> Haetaan {nimi}...")
-        
-        # Lisätään "tarjotin saatavilla" -teksti valituille ravintoloille
         nayton_nimi = nimi
         if nimi in ["Tellus", "POR", "Lasihelmi"]:
             nayton_nimi += " (tarjotin saatavilla)"
