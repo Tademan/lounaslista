@@ -35,7 +35,6 @@ def hae_herkkuhetki():
     try:
         res = requests.get(url, headers=HEADERS, timeout=15, verify=False)
         
-        # 1. TARKISTETAAN ESTÄÄKÖ PALVELIN GITHUBIN (IP-ESTO)
         if res.status_code != 200:
             print(f"Herkkuhetki esti yhteyden (Status: {res.status_code})")
             return [f"Yhteys estettiin (Virhe {res.status_code})"]
@@ -43,15 +42,12 @@ def hae_herkkuhetki():
         res.encoding = 'utf-8'
         html = res.text
         
-        # 2. PAKOTETAAN AIKA SUOMEN AIKAVYÖHYKKEESEEN GITHUBIA VARTEN
         try:
             from zoneinfo import ZoneInfo
             tanaan = datetime.datetime.now(ZoneInfo("Europe/Helsinki")).date()
         except ImportError:
-            # Varakeino jos käytössä vanhempi Python-versio
             tanaan = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3))).date()
 
-        # ... (Tästä eteenpäin koodi jatkuu täsmälleen samana kuin ennenkin)
         pvm_vaihtoehdot = [
             f"{tanaan.day}.{tanaan.month}.{tanaan.year}",
             tanaan.strftime("%d.%m.%Y"),
@@ -63,11 +59,9 @@ def hae_herkkuhetki():
         
         menu_data = ""
         
-        # 1. Yritetään lukea data suoraan html-tekstistä
         if 'weeklyMenu' in html and 'dayName' in html:
             menu_data = html
         else:
-            # 2. Yritetään purkaa Base64
             b64_matches = re.findall(r'base64,([^"\'\s>]+)', html)
             for b64 in b64_matches:
                 b64_clean = re.sub(r'\s+', '', b64)
@@ -80,7 +74,6 @@ def hae_herkkuhetki():
                 except:
                     continue
 
-        # 3. Yritetään kaivaa ulkoisista JS-tiedostoista (hätävara)
         if not menu_data:
             js_files = re.findall(r'<script[^>]+src="([^"]+\.js[^"]*)"', html)
             for js_url in js_files:
@@ -97,7 +90,6 @@ def hae_herkkuhetki():
         if not menu_data:
             return []
 
-        # -- ÄÄKKÖSTEN KORJAUSTYÖKALU --
         def korjaa_teksti(teksti):
             t = teksti.replace('\\/', '/')
             try:
@@ -105,13 +97,11 @@ def hae_herkkuhetki():
             except:
                 pass
             try:
-                # Korjataan rikkinäinen utf-8 -> latin-1 tuplakoodaus (Ã¤ -> ä)
                 t = t.encode('latin-1').decode('utf-8')
             except:
                 pass
             return t.strip()
 
-        # Varsinainen datan parsinta
         days_data = re.split(r'\{id:\s*\d+\s*,\s*dayName:', menu_data)
         
         for i, day_block in enumerate(days_data):
@@ -186,13 +176,41 @@ def hae_por():
         fmt = "%#d.%#m." if os.name == 'nt' else "%-d.%-m."
         haku = f"{datetime.date.today().strftime('%A').capitalize()} {datetime.date.today().strftime(fmt)}"
         res = requests.get(url, headers=HEADERS, timeout=10, verify=False)
+        res.raise_for_status() 
+        
         soup = BeautifulSoup(res.text, 'html.parser')
         tag = next((t for t in soup.find_all('strong') if t.get_text(strip=True).startswith(haku)), None)
-        if not tag: return []
+        
+        if not tag: 
+            return [f"Virhe: Kuluvan päivän otsikkoa '{haku}' ei löytynyt."]
+            
         p_tag = tag.parent
-        for br in p_tag.find_all('br'): br.replace_with("||")
-        return [f"• {r.strip()}" for r in p_tag.get_text().split("||") if r.strip()][1:]
-    except: return []
+        for br in p_tag.find_all('br'): 
+            br.replace_with("||")
+            
+        kaikki_rivit = [r.strip() for r in p_tag.get_text().split("||") if r.strip()]
+        
+        tulos = []
+        kerataan = False
+        viikonpaivat = ["Maanantai", "Tiistai", "Keskiviikko", "Torstai", "Perjantai", "Lauantai", "Sunnuntai"]
+        
+        for rivi in kaikki_rivit:
+            if rivi.startswith(haku):
+                kerataan = True
+                continue
+            elif kerataan and any(rivi.startswith(vp) for vp in viikonpaivat):
+                break
+            
+            if kerataan:
+                tulos.append(f"• {rivi}")
+                
+        if not tulos:
+            return ["Virhe: Otsikko löytyi, mutta ruokia ei."]
+            
+        return tulos
+        
+    except Exception as e:
+        return [f"Virhe listan haussa: {e}"]
 
 def hae_factory():
     url = "https://ravintolafactory.com/lounasravintolat/ravintolat/helsinki-pitajanmaki/"
@@ -351,7 +369,6 @@ def luo_html_raportti(data_lista, pvm):
         safe_id = f"menu-{i}"
         rivit_html = "".join([f"<li>{rivi}</li>" for rivi in r["rivit"]]) if r["rivit"] else "<li style='color:gray'>Ei listaa saatavilla.</li>"
         
-        # Suojataan ravintolan nimen heittomerkit JavaScriptiä varten
         safe_name = r['nimi'].replace("'", "\\'")
         
         html_template += f'''
