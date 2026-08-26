@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lounas Laituri</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/nostr-tools@1.17.0/lib/nostr.bundle.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+    <header class="bg-slate-950 border-b border-slate-800 p-4 sticky top-0 z-20 shadow-lg">
+        <div class="max-w-4xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20">
+                    <span class="text-xl">🚂</span>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight">Lounas Laituri</h1>
+                    <div class="flex items-center gap-2 text-xs">
+                        <span id="relay-status-dot" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                        <span id="relay-status-text" class="text-slate-400">Yhdistetään reileihin...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <button id="toggle-debug-btn" class="text-sm bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg border border-slate-700 transition" title="Debug: Näytä raaka JSON">
+                    🐛
+                </button>
+                <button id="toggle-profile-btn" class="text-sm bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg border border-slate-700 transition flex items-center gap-2">
+                    <span>⚙️</span> Oma Profiili
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-4xl w-full mx-auto p-4 flex-1 flex flex-col gap-6 mt-4">
+
+        <div id="profile-section" class="hidden bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-xl transition-all">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-indigo-300">Omat Tiedot & Tilit (Debug)</h2>
+            </div>
+            
+            <div class="mb-5 bg-slate-900/50 p-3 rounded-xl border border-slate-700/50">
+                <label class="block text-xs font-medium text-slate-400 mb-2">Vaihda käyttäjää</label>
+                <div id="account-list" class="flex flex-wrap gap-2">
+                    <!-- Accounts rendered here -->
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-400 mb-4">Nämä tiedot tallentuvat Nostr-verkkoon ja toimivat lähtöpaikkanasi lounasjunissa.</p>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Nimi / Nimimerkki</label>
+                    <input type="text" id="profile-name" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" placeholder="Esim. Matti Meikäläinen">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Yritys</label>
+                    <input type="text" id="profile-company" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" placeholder="Esim. ABB">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Osasto</label>
+                    <input type="text" id="profile-department" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" placeholder="Esim. Moottoritehdas">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Tiimi / Kerros</label>
+                    <input type="text" id="profile-team" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" placeholder="Esim. 3. kerros, Tiimi A">
+                </div>
+            </div>
+            
+            <div class="mt-5 flex justify-end gap-3">
+                <button id="close-profile-btn" class="px-4 py-2 text-sm text-slate-300 hover:text-white transition">Sulje</button>
+                <button id="save-profile-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg text-sm font-medium transition shadow-md">Tallenna verkkoon</button>
+            </div>
+            <div id="profile-toast" class="mt-3 text-xs text-emerald-400 hidden">Tiedot tallennettu onnistuneesti!</div>
+        </div>
+
+        <div class="glass-card border border-slate-700 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-32 h-32 bg-indigo-600/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+            
+            <h2 class="text-lg font-semibold mb-4 text-white">Kuuluta uusi lounasjuna</h2>
+            
+            <div class="flex flex-col sm:flex-row gap-4 items-end">
+                <div class="flex-1 w-full">
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Kohderavintola</label>
+                    <select id="train-restaurant" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none appearance-none">
+                        <option value="" disabled selected>Valitse ravintola...</option>
+                        <option value="POR">POR</option>
+                        <option value="Factory">Factory</option>
+                        <option value="Herkku hetki">Herkku hetki</option>
+                        <option value="Antell">Antell</option>
+                        <option value="Lasihelmi">Lasihelmi</option>
+                        <option value="__NEW__">➕ Uusi ravintola...</option>
+                    </select>
+                    <input type="text" id="custom-restaurant-input" class="hidden mt-2 w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none" placeholder="Kirjoita ravintolan nimi...">
+                </div>
+                
+                <div class="w-full sm:w-32">
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Lähtöaika</label>
+                    <input type="time" id="train-time" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:border-indigo-500 focus:outline-none [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert">
+                </div>
+                
+                <button id="create-train-btn" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-2.5 rounded-xl transition text-sm shadow-md shadow-emerald-900/50 flex items-center justify-center gap-2">
+                    <span>📢</span> Lähtöön
+                </button>
+            </div>
+            <div id="create-error" class="mt-3 text-xs text-rose-400 hidden">Täytä ravintola ja aika sekä omat tietosi profiilista!</div>
+        </div>
+
+        <div>
+            <div class="flex justify-between items-center mb-3 px-1">
+                <h2 class="text-lg font-semibold text-slate-200">Aktiiviset junat</h2>
+                <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-medium text-slate-400">Aikaikkuna:</span>
+                    <select id="time-window-select" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs focus:border-indigo-500 focus:outline-none text-slate-200">
+                        <option value="0">0 min</option>
+                        <option value="5">5 min</option>
+                        <option value="10">10 min</option>
+                        <option value="15">15 min</option>
+                        <option value="30">30 min</option>
+                        <option value="60">60 min</option>
+                        <option value="120">2 tuntia</option>
+                        <option value="240">4 tuntia</option>
+                        <option value="all">Kaikki</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div id="filter-section" class="mb-4 bg-slate-800/70 border border-slate-700 rounded-xl p-3">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-xs font-medium text-slate-400">Suodattimet</h3>
+                    <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+                            <input type="checkbox" id="hide-ghost-trains" class="accent-indigo-500 w-3.5 h-3.5">
+                            Piilota haamujunat 👻
+                        </label>
+                        <button id="clear-filters-btn" class="text-xs text-rose-400 hover:text-rose-300 transition px-2 py-0.5 bg-slate-900 rounded-lg border border-slate-700">Tyhjennä</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    <div class="relative">
+                        <select id="filter-restaurant" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none text-slate-200 appearance-none pr-6">
+                            <option value="">Kaikki ravintolat</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
+                            <svg class="fill-current h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <select id="filter-company" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none text-slate-200 appearance-none pr-6">
+                            <option value="">Kaikki yritykset</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
+                            <svg class="fill-current h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <select id="filter-department" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none text-slate-200 appearance-none pr-6">
+                            <option value="">Kaikki osastot</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
+                            <svg class="fill-current h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <select id="filter-team" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none text-slate-200 appearance-none pr-6">
+                            <option value="">Kaikki tiimit</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
+                            <svg class="fill-current h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="train-feed" class="flex flex-col gap-4">
+                <!-- Trains will be rendered here -->
+                <div class="text-center py-12 text-slate-500 text-sm glass-card border border-slate-800 rounded-2xl">
+                    Haetaan lounasjunia...
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Modal -->
+        <div id="debug-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl">
+                <div class="flex justify-between items-center p-4 border-b border-slate-800">
+                    <h2 class="text-lg font-bold text-emerald-400">🐛 Debug: Raaka JSON</h2>
+                    <button id="close-debug-btn" class="text-slate-400 hover:text-white px-2 text-sm font-medium">Sulje</button>
+                </div>
+                <div class="p-4 overflow-auto flex-1 text-xs font-mono text-slate-300 bg-black/50 rounded-b-2xl">
+                    <pre id="debug-json-content"></pre>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // Constants & State
+        const APP_TAG = "lounaslaituri-v1";
+        const RELAYS = [
+            'wss://relay.primal.net',
+            'wss://nos.lol',
+            'wss://relay.nostr.band',
+            'wss://relay.snort.social'
+        ];
+        
+        let activeSockets = [];
+        let keys = { privKeyHex: null, pubKeyHex: null };
+        let userProfile = { name: "", company: "", department: "", team: "" };
+        let activeFilters = { restaurant: "", company: "", department: "", team: "" };
+        let hideGhostTrains = false; // Piilota junat, joissa ei ole matkustajia (haamujunat)
+        let timeWindowMinutes = 15; // Default: näytä junat jotka lähtivät max 15 min sitten
+        let showAllTrains = false; // Näytä kaikki junat ajasta riippumatta
+        let trainsMap = new Map(); // Store active trains (Kind 1)
+        let reactionsMap = new Map(); // Store passengers/reactions (Kind 7)
+        let profilesMap = new Map(); // Store authors' profiles (Kind 0)
+        let trainUpdatesMap = new Map(); // Store time updates for trains (Kind 1 with "train" tag)
+        
+        // Multi-account state (Debug feature)
+        let accounts = [];
+        let activeAccountIndex = 0;
+
+        // Init App
+        window.onload = () => {
+            loadFilters();
+            loadAccounts();
+            connectRelays();
+            
+            // Set default time to nearest 15 mins
+            const now = new Date();
+            const mins = Math.ceil(now.getMinutes() / 15) * 15;
+            now.setMinutes(mins);
+            document.getElementById('train-time').value = now.toTimeString().slice(0, 5);
+
+            // UI Listeners
+            document.getElementById('toggle-profile-btn').addEventListener('click', toggleProfile);
+            document.getElementById('close-profile-btn').addEventListener('click', toggleProfile);
+            document.getElementById('save-profile-btn').addEventListener('click', saveProfile);
+            document.getElementById('create-train-btn').addEventListener('click', createTrain);
+            document.getElementById('train-restaurant').addEventListener('change', handleRestaurantChange);
+            document.getElementById('toggle-debug-btn').addEventListener('click', toggleDebug);
+            document.getElementById('close-debug-btn').addEventListener('click', toggleDebug);
+            
+            // Filter listeners
+            document.getElementById('clear-filters-btn').addEventListener('click', clearFilters);
+            ['restaurant', 'company', 'department', 'team'].forEach(field => {
+                document.getElementById(`filter-${field}`).addEventListener('change', handleFilterChange);
+            });
+            document.getElementById('time-window-select').addEventListener('change', handleTimeWindowChange);
+            document.getElementById('hide-ghost-trains').addEventListener('change', handleGhostTrainsChange);
+            
+            // Refresh feed every minute to drop old trains
+            setInterval(renderTrains, 60000);
+            setInterval(updateDebugJSON, 2000); // Auto-update debug view if open
+        };
+        
+        function toggleDebug() {
+            const modal = document.getElementById('debug-modal');
+            modal.classList.toggle('hidden');
+            if (!modal.classList.contains('hidden')) updateDebugJSON();
+        }
+
+        function updateDebugJSON() {
+            const modal = document.getElementById('debug-modal');
+            if (modal.classList.contains('hidden')) return;
+            
+            const debugData = {
+                activeAccountPubkey: keys.pubKeyHex,
+                trains: Array.from(trainsMap.values()),
+                trainUpdates: Array.from(trainUpdatesMap.entries()),
+                reactions: Array.from(reactionsMap.entries()).map(([k,v]) => ({ eventId: k, reactions: Array.from(v.values()) })),
+                knownProfiles: Array.from(profilesMap.entries())
+            };
+            document.getElementById('debug-json-content').textContent = JSON.stringify(debugData, null, 2);
+        }
+
+        // --- FILTERING LOGIC ---
+        function loadFilters() {
+            const saved = localStorage.getItem('ll_filters');
+            if (saved) {
+                activeFilters = { restaurant: "", company: "", department: "", team: "", ...JSON.parse(saved) };
+            }
+            
+            // Lataa aikaikkuna-asetus
+            const savedWindow = localStorage.getItem('ll_time_window');
+            if (savedWindow) {
+                if (savedWindow === "all") {
+                    showAllTrains = true;
+                } else {
+                    timeWindowMinutes = parseInt(savedWindow);
+                }
+                document.getElementById('time-window-select').value = savedWindow;
+            } else {
+                document.getElementById('time-window-select').value = timeWindowMinutes;
+            }
+
+            // Lataa haamujunien piilotusasetus
+            const savedGhost = localStorage.getItem('ll_hide_ghost_trains');
+            hideGhostTrains = savedGhost === "1";
+            document.getElementById('hide-ghost-trains').checked = hideGhostTrains;
+        }
+
+        function saveFilters() {
+            localStorage.setItem('ll_filters', JSON.stringify(activeFilters));
+        }
+
+        function handleFilterChange(e) {
+            const field = e.target.id.replace('filter-', '');
+            activeFilters[field] = e.target.value;
+            
+            // Ketjutus: jos vaihdat yritystä, tyhjennetään alemmat valinnat
+            if (field === 'company') {
+                activeFilters.department = "";
+                activeFilters.team = "";
+            } else if (field === 'department') {
+                activeFilters.team = "";
+            }
+            
+            saveFilters();
+            renderTrains();
+        }
+
+        function clearFilters() {
+            activeFilters = { restaurant: "", company: "", department: "", team: "" };
+            saveFilters();
+            renderTrains();
+        }
+
+        function handleRestaurantChange(e) {
+            const customInput = document.getElementById('custom-restaurant-input');
+            if (e.target.value === "__NEW__") {
+                customInput.classList.remove('hidden');
+                customInput.focus();
+            } else {
+                customInput.classList.add('hidden');
+                customInput.value = "";
+            }
+        }
+
+        function handleTimeWindowChange(e) {
+            const val = e.target.value;
+            if (val === "all") {
+                showAllTrains = true;
+                timeWindowMinutes = 15;
+            } else {
+                showAllTrains = false;
+                timeWindowMinutes = parseInt(val);
+            }
+            localStorage.setItem('ll_time_window', val);
+            renderTrains();
+        }
+
+        function handleGhostTrainsChange(e) {
+            hideGhostTrains = e.target.checked;
+            localStorage.setItem('ll_hide_ghost_trains', hideGhostTrains ? "1" : "0");
+            renderTrains();
+        }
+
+        function hasActiveFilters() {
+            return activeFilters.restaurant !== "" || activeFilters.company !== "" || activeFilters.department !== "" || activeFilters.team !== "";
+        }
+
+        // -----------------------
+
+        function loadAccounts() {
+            const saved = localStorage.getItem('ll_accounts');
+            if (saved) {
+                accounts = JSON.parse(saved);
+            } else {
+                // Migrate old single account if exists
+                const oldPriv = localStorage.getItem('ll_privkey');
+                const oldPub = localStorage.getItem('ll_pubkey');
+                const oldProf = localStorage.getItem('ll_profile');
+                if (oldPriv && oldPub) {
+                    accounts = [{
+                        privKeyHex: oldPriv,
+                        pubKeyHex: oldPub,
+                        profile: oldProf ? JSON.parse(oldProf) : { name: "Käyttäjä 1", company: "", department: "", team: "" }
+                    }];
+                } else {
+                    createNewAccount(false);
+                }
+            }
+            
+            activeAccountIndex = parseInt(localStorage.getItem('ll_active_index') || "0");
+            if (activeAccountIndex >= accounts.length) activeAccountIndex = 0;
+            
+            applyActiveAccount();
+            renderAccountsUI();
+            
+            // Open profile automatically if empty
+            if (!userProfile.name) {
+                document.getElementById('profile-section').classList.remove('hidden');
+            }
+        }
+
+        function createNewAccount(switchNow = true) {
+            const priv = window.NostrTools.generatePrivateKey();
+            const pub = window.NostrTools.getPublicKey(priv);
+            accounts.push({
+                privKeyHex: priv,
+                pubKeyHex: pub,
+                profile: { name: `Käyttäjä ${accounts.length + 1}`, company: "ABB", department: "", team: "" }
+            });
+            saveAccounts();
+            if (switchNow) switchAccount(accounts.length - 1);
+        }
+
+        window.switchAccount = function(index) {
+            activeAccountIndex = index;
+            localStorage.setItem('ll_active_index', activeAccountIndex);
+            applyActiveAccount();
+            renderAccountsUI();
+            renderTrains(); // Re-render feed so 'Hyppää kyytiin' status updates
+            
+            // Re-fetch profile for this specific new active account
+            activeSockets.forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) fetchMyProfile(ws);
+            });
+        };
+
+        function applyActiveAccount() {
+            const acc = accounts[activeAccountIndex];
+            keys.privKeyHex = acc.privKeyHex;
+            keys.pubKeyHex = acc.pubKeyHex;
+            userProfile = acc.profile || { name: "", company: "", department: "", team: "" };
+            
+            document.getElementById('profile-name').value = userProfile.name || "";
+            document.getElementById('profile-company').value = userProfile.company || "";
+            document.getElementById('profile-department').value = userProfile.department || "";
+            document.getElementById('profile-team').value = userProfile.team || "";
+        }
+
+        function saveAccounts() {
+            localStorage.setItem('ll_accounts', JSON.stringify(accounts));
+        }
+
+        function renderAccountsUI() {
+            const container = document.getElementById('account-list');
+            container.innerHTML = accounts.map((acc, i) => {
+                const isActive = i === activeAccountIndex;
+                const name = acc.profile.name || `Käyttäjä ${i+1}`;
+                return `
+                    <button onclick="switchAccount(${i})" class="px-3 py-1.5 rounded-lg text-xs font-medium border transition ${isActive ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}">
+                        ${isActive ? '✓ ' : ''}${escapeHtml(name)}
+                    </button>
+                `;
+            }).join('') + `
+                <button onclick="createNewAccount(true)" class="px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-slate-600 text-slate-400 hover:bg-slate-800 hover:text-white transition">
+                    + Uusi
+                </button>
+            `;
+        }
+
+        function toggleProfile() {
+            const section = document.getElementById('profile-section');
+            section.classList.toggle('hidden');
+            document.getElementById('profile-toast').classList.add('hidden');
+        }
+
+        function updateConnectionStatus() {
+            const statusText = document.getElementById('relay-status-text');
+            const statusDot = document.getElementById('relay-status-dot');
+            // Lasketaan vain ne yhteydet, jotka ovat aidosti auki
+            const openConnections = activeSockets.filter(ws => ws.readyState === WebSocket.OPEN).length;
+            
+            if (openConnections === 0) {
+                statusText.textContent = 'Yhteys katkennut (0)';
+                statusDot.className = 'w-2 h-2 rounded-full bg-rose-500';
+            } else {
+                statusText.textContent = `Yhdistetty (${openConnections})`;
+                statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            }
+        }
+
+        function connectRelays() {
+            RELAYS.forEach(url => {
+                const ws = new WebSocket(url);
+                activeSockets.push(ws);
+
+                ws.onopen = () => {
+                    updateConnectionStatus();
+                    // Subscribe to trains and metadata
+                    subscribeToData(ws);
+                    // Fetch my own profile from relays if exists
+                    fetchMyProfile(ws);
+                };
+
+                ws.onmessage = (event) => handleNostrMessage(event);
+                
+                ws.onerror = () => console.warn("Yhteysvirhe:", url);
+                
+                ws.onclose = () => {
+                    updateConnectionStatus();
+                };
+            });
+        }
+
+        function subscribeToData(ws) {
+            const subId = "sub_" + Math.random().toString(36).substring(7);
+            // Get all trains (Kind 1) with our app tag, and reactions (Kind 7)
+            const filters = [
+                { kinds: [1], '#t': [APP_TAG], limit: 100 },
+                { kinds: [7], '#t': [APP_TAG], limit: 500 },
+                { kinds: [0], authors: Array.from(profilesMap.keys()) } // get profiles for known authors
+            ];
+            ws.send(JSON.stringify(["REQ", subId, ...filters]));
+        }
+
+        function fetchMyProfile(ws) {
+            const subId = "my_prof_" + Math.random().toString(36).substring(7);
+            ws.send(JSON.stringify(["REQ", subId, { kinds: [0], authors: [keys.pubKeyHex] }]));
+        }
+
+        function handleNostrMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data[0] === "EVENT") {
+                    const ev = data[2];
+                    
+                    if (ev.kind === 1 && hasTag(ev, 't', APP_TAG)) {
+                        const trainRef = getTagValue(ev, 'train');
+                        if (trainRef && trainsMap.has(trainRef)) {
+                            // This is a time update for an existing train
+                            const existing = trainUpdatesMap.get(trainRef);
+                            if (!existing || ev.created_at > existing.created_at) {
+                                trainUpdatesMap.set(trainRef, ev);
+                            }
+                            renderTrains();
+                        } else if (!trainsMap.has(ev.id)) {
+                            trainsMap.set(ev.id, ev);
+                            requestProfileIfNeeded(ev.pubkey);
+                            renderTrains();
+                        }
+                    } 
+                    else if (ev.kind === 7 && hasTag(ev, 't', APP_TAG)) {
+                        const targetEventId = getTagValue(ev, 'e');
+                        if (targetEventId) {
+                            if (!reactionsMap.has(targetEventId)) reactionsMap.set(targetEventId, new Map());
+                            
+                            // Tallennetaan vain uusin reaktio per käyttäjä (+ tai -)
+                            const existing = reactionsMap.get(targetEventId).get(ev.pubkey);
+                            if (!existing || ev.created_at > existing.created_at) {
+                                reactionsMap.get(targetEventId).set(ev.pubkey, ev);
+                            }
+                            
+                            requestProfileIfNeeded(ev.pubkey);
+                            renderTrains();
+                        }
+                    }
+                    else if (ev.kind === 0) {
+                        try {
+                            const content = JSON.parse(ev.content);
+                            profilesMap.set(ev.pubkey, content);
+                            renderTrains();
+                        } catch(e) {}
+                    }
+                }
+            } catch (err) { console.error("Parse error:", err); }
+        }
+
+        function requestProfileIfNeeded(pubkey) {
+            if (!profilesMap.has(pubkey) && activeSockets.length > 0) {
+                // Optimistically set to empty so we don't spam requests
+                profilesMap.set(pubkey, { name: "Tuntematon..." }); 
+                const req = JSON.stringify(["REQ", "p_" + pubkey.substring(0,6), { kinds: [0], authors: [pubkey] }]);
+                activeSockets.forEach(ws => {
+                    if (ws.readyState === WebSocket.OPEN) ws.send(req);
+                });
+            }
+        }
+
+        async function saveProfile() {
+            userProfile.name = document.getElementById('profile-name').value.trim();
+            userProfile.company = document.getElementById('profile-company').value.trim();
+            userProfile.department = document.getElementById('profile-department').value.trim();
+            userProfile.team = document.getElementById('profile-team').value.trim();
+            
+            // Update active account and save all
+            accounts[activeAccountIndex].profile = userProfile;
+            saveAccounts();
+            renderAccountsUI(); // Update names in the account switcher
+
+            // Publish Kind 0 to Nostr
+            const eventTemplate = {
+                kind: 0,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [],
+                content: JSON.stringify(userProfile),
+                pubkey: keys.pubKeyHex
+            };
+
+            publishEvent(eventTemplate);
+            
+            const toast = document.getElementById('profile-toast');
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3000);
+        }
+
+        function createTrain() {
+            const errorEl = document.getElementById('create-error');
+            errorEl.classList.add('hidden');
+
+            let restaurant = document.getElementById('train-restaurant').value;
+            const timeStr = document.getElementById('train-time').value;
+
+            // Jos valittu "Uusi ravintola", käytetään tekstikentän arvoa
+            if (restaurant === "__NEW__") {
+                restaurant = document.getElementById('custom-restaurant-input').value.trim();
+            }
+
+            if (!restaurant || !timeStr) {
+                errorEl.textContent = "Valitse tai kirjoita ravintola ja aika!";
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            if (!userProfile.name || !userProfile.company) {
+                errorEl.textContent = "Täytä ensin nimesi ja yrityksesi profiilista (ratas-kuvake ylhäällä).";
+                errorEl.classList.remove('hidden');
+                return;
+            }
+
+            // Convert time (e.g. 11:30) to today's Unix timestamp
+            const now = new Date();
+            const [hours, minutes] = timeStr.split(':');
+            const depDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(hours), parseInt(minutes));
+            const depUnix = Math.floor(depDate.getTime() / 1000);
+
+            // Origin string
+            const originStr = [userProfile.company, userProfile.department, userProfile.team].filter(Boolean).join(" - ");
+
+            const eventTemplate = {
+                kind: 1,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ["t", APP_TAG],
+                    ["restaurant", restaurant],
+                    ["time", timeStr],
+                    ["departure", depUnix.toString()],
+                    ["from", originStr],
+                    ["company", userProfile.company || ""],
+                    ["department", userProfile.department || ""],
+                    ["team", userProfile.team || ""]
+                ],
+                content: `Lounasjuna ravintolaan ${restaurant} lähtee klo ${timeStr}! Kohde sijaitsee osoitteessa... (lisätietoja)`,
+                pubkey: keys.pubKeyHex
+            };
+
+            const publishedEvent = publishEvent(eventTemplate);
+            
+            // Automaattinen kyytiin hyppääminen, kun luot junan itse
+            if (publishedEvent && publishedEvent.id) {
+                joinTrain(publishedEvent.id);
+            }
+            
+            // Optimistically add to UI
+            document.getElementById('train-restaurant').value = "";
+            document.getElementById('custom-restaurant-input').value = "";
+            document.getElementById('custom-restaurant-input').classList.add('hidden');
+        }
+
+        window.joinTrain = function(eventId) {
+            if (!userProfile.name) {
+                alert("Täytä profiili ensin, jotta muut tietävät kuka hyppää kyytiin!");
+                toggleProfile();
+                return;
+            }
+
+            const currentUnix = Math.floor(Date.now() / 1000);
+
+            // Varmistetaan, että voidaan olla vain yhdessä junassa kerrallaan
+            // Etsitään muut junat ja poistutaan niistä (paitsi yli tunnin vanhoista)
+            for (const [tId, passengers] of reactionsMap.entries()) {
+                if (tId !== eventId) {
+                    const myReaction = passengers.get(keys.pubKeyHex);
+                    // Jos viimeisin reaktioni toisessa junassa ei ole "-", poistun siitä
+                    if (myReaction && myReaction.content !== "-") {
+                        // Älä poistu junasta, jonka lähtöaika on yli tunnin vanha (historia säilyy)
+                        const trainEvent = trainsMap.get(tId);
+                        if (trainEvent) {
+                            const effective = getTrainEffectiveData(trainEvent);
+                            if (effective.departure < (currentUnix - 3600)) {
+                                continue;
+                            }
+                        }
+                        leaveTrain(tId);
+                    }
+                }
+            }
+
+            const eventTemplate = {
+                kind: 7,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ["e", eventId],
+                    ["t", APP_TAG]
+                ],
+                content: "+",
+                pubkey: keys.pubKeyHex
+            };
+            publishEvent(eventTemplate);
+        };
+
+        window.leaveTrain = function(eventId) {
+            const eventTemplate = {
+                kind: 7,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ["e", eventId],
+                    ["t", APP_TAG]
+                ],
+                content: "-",
+                pubkey: keys.pubKeyHex
+            };
+            publishEvent(eventTemplate);
+        };
+
+        function publishEvent(eventTemplate) {
+            let signedEvent;
+            if (window.NostrTools.finishEvent) {
+                signedEvent = window.NostrTools.finishEvent(eventTemplate, keys.privKeyHex);
+            } else {
+                eventTemplate.id = window.NostrTools.getEventHash(eventTemplate);
+                signedEvent = { ...eventTemplate, sig: window.NostrTools.signEvent(eventTemplate.id, keys.privKeyHex) };
+            }
+
+            activeSockets.forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(["EVENT", signedEvent]));
+                }
+            });
+            
+            // Self-feed for immediate UI update
+            handleNostrMessage({ data: JSON.stringify(["EVENT", "temp", signedEvent]) });
+            
+            return signedEvent;
+        }
+
+        function getTrainLocationData(event) {
+            let c = getTagValue(event, 'company');
+            let d = getTagValue(event, 'department');
+            let t = getTagValue(event, 'team');
+
+            // Fallback: Jos tägejä ei löydy suoraan, parsetaan vanhasta "from" (Lähtöpaikka) -kentästä
+            if (!c) {
+                const fromStr = getTagValue(event, 'from');
+                if (fromStr) {
+                    const parts = fromStr.split(' - ').map(s => s.trim());
+                    if (parts.length > 0) c = parts[0];
+                    if (parts.length > 1) d = parts[1];
+                    if (parts.length > 2) t = parts[2];
+                }
+            }
+
+            return {
+                company: (c || "").trim(),
+                department: (d || "").trim(),
+                team: (t || "").trim()
+            };
+        }
+
+        function getTrainEffectiveData(event) {
+            const update = trainUpdatesMap.get(event.id);
+            if (update) {
+                const time = getTagValue(update, 'time') || getTagValue(event, 'time') || "--:--";
+                const depStr = getTagValue(update, 'departure') || getTagValue(event, 'departure');
+                const departure = depStr ? parseInt(depStr) : 0;
+                return { time, departure };
+            }
+            const time = getTagValue(event, 'time') || "--:--";
+            const depStr = getTagValue(event, 'departure');
+            const departure = depStr ? parseInt(depStr) : 0;
+            return { time, departure };
+        }
+
+        function getSortedPassengers(event) {
+            const trainId = event.id;
+            const passengerReactionMap = reactionsMap.get(trainId) || new Map();
+            const passengers = [];
+            const creatorReaction = passengerReactionMap.get(event.pubkey);
+            if (!creatorReaction || creatorReaction.content === "+") {
+                passengers.push({
+                    pubkey: event.pubkey,
+                    joinTime: creatorReaction ? creatorReaction.created_at : event.created_at
+                });
+            }
+            for (const [pk, r] of passengerReactionMap.entries()) {
+                if (pk !== event.pubkey && r.content === "+") {
+                    passengers.push({ pubkey: pk, joinTime: r.created_at });
+                }
+            }
+            // Järjestetään liittymisajan mukaan -> veturi ensin, sitten liittymisjärjestyksessä
+            passengers.sort((a, b) => a.joinTime - b.joinTime);
+            return passengers.map(p => p.pubkey);
+        }
+
+        function getVeturi(event) {
+            const trainId = event.id;
+            const passengerReactionMap = reactionsMap.get(trainId) || new Map();
+            
+            // Build list of passengers with join times
+            const passengers = [];
+            
+            // Add creator if they don't have a reaction OR their latest reaction is +
+            const creatorReaction = passengerReactionMap.get(event.pubkey);
+            if (!creatorReaction || creatorReaction.content === "+") {
+                passengers.push({
+                    pubkey: event.pubkey,
+                    joinTime: creatorReaction ? creatorReaction.created_at : event.created_at
+                });
+            }
+            
+            // Add other passengers with + reactions
+            for (const [pk, r] of passengerReactionMap.entries()) {
+                if (pk !== event.pubkey && r.content === "+") {
+                    passengers.push({ pubkey: pk, joinTime: r.created_at });
+                }
+            }
+            
+            if (passengers.length === 0) return null;
+            
+            // Sort by join time (earliest first)
+            passengers.sort((a, b) => a.joinTime - b.joinTime);
+            
+            return passengers[0].pubkey;
+        }
+
+        window.adjustTime = function(eventId, deltaMinutes) {
+            const originalEvent = trainsMap.get(eventId);
+            if (!originalEvent) return;
+            
+            // Verify the caller is the current veturi
+            const veturiPubkey = getVeturi(originalEvent);
+            if (veturiPubkey !== keys.pubKeyHex) {
+                alert("Vain veturi voi muuttaa lähtöaikaa!");
+                return;
+            }
+            
+            const effective = getTrainEffectiveData(originalEvent);
+            const newDep = effective.departure + (deltaMinutes * 60);
+            
+            // Format new time string
+            const newDate = new Date(newDep * 1000);
+            const newTimeStr = newDate.toTimeString().slice(0, 5);
+            
+            const eventTemplate = {
+                kind: 1,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ["t", APP_TAG],
+                    ["train", eventId],
+                    ["restaurant", getTagValue(originalEvent, 'restaurant') || ""],
+                    ["time", newTimeStr],
+                    ["departure", newDep.toString()],
+                    ["from", getTagValue(originalEvent, 'from') || ""],
+                    ["company", getTagValue(originalEvent, 'company') || ""],
+                    ["department", getTagValue(originalEvent, 'department') || ""],
+                    ["team", getTagValue(originalEvent, 'team') || ""]
+                ],
+                content: `Lounasjuna ravintolaan ${getTagValue(originalEvent, 'restaurant')} lähtee klo ${newTimeStr}!`,
+                pubkey: keys.pubKeyHex
+            };
+            
+            publishEvent(eventTemplate);
+        };
+
+        function populateRestaurantOptions() {
+            const restaurants = new Set();
+            trainsMap.forEach(ev => {
+                const r = getTagValue(ev, 'restaurant');
+                if (r) restaurants.add(r);
+            });
+            
+            const select = document.getElementById('train-restaurant');
+            const currentValue = select.value;
+            const currentOptions = Array.from(select.options).map(o => o.value).filter(v => v !== "" && v !== "__NEW__");
+            const newValues = Array.from(restaurants).sort();
+            
+            if (JSON.stringify(newValues) !== JSON.stringify(currentOptions)) {
+                select.innerHTML = `<option value="" disabled selected>Valitse ravintola...</option>`;
+                newValues.forEach(v => {
+                    const optionEl = document.createElement('option');
+                    optionEl.value = v;
+                    optionEl.textContent = v;
+                    select.appendChild(optionEl);
+                });
+                // Lisätään "Uusi ravintola" -vaihtoehto loppuun
+                const newOpt = document.createElement('option');
+                newOpt.value = "__NEW__";
+                newOpt.textContent = "➕ Uusi ravintola...";
+                select.appendChild(newOpt);
+                
+                // Palautetaan valinta, jos se on edelleen voimassa
+                if (currentValue && currentValue !== "__NEW__" && restaurants.has(currentValue)) {
+                    select.value = currentValue;
+                }
+            }
+        }
+
+        function populateDropdownOptions(activeTrainsRaw) {
+            const restaurants = new Set();
+            const companies = new Set();
+            const departments = new Set();
+            const teams = new Set();
+
+            // Kerätään tarjolla olevat vaihtoehdot nykyisten filttereiden perusteella
+            activeTrainsRaw.forEach(ev => {
+                const loc = getTrainLocationData(ev);
+                const restaurant = getTagValue(ev, 'restaurant');
+
+                if (restaurant) restaurants.add(restaurant);
+                if (loc.company) companies.add(loc.company);
+                if (loc.department && (!activeFilters.company || activeFilters.company === loc.company)) {
+                    departments.add(loc.department);
+                }
+                if (loc.team && (!activeFilters.company || activeFilters.company === loc.company) && (!activeFilters.department || activeFilters.department === loc.department)) {
+                    teams.add(loc.team);
+                }
+            });
+
+            // Päivitetään Select-elementit älykkäästi (ei renderöidä turhaan uusiksi)
+            const updateSelect = (id, optionsSet, defaultText, currentValue) => {
+                const select = document.getElementById(id);
+                const newOptionsArray = Array.from(optionsSet).sort();
+                
+                // Tarkistetaan ovatko vaihtoehdot muuttuneet verrattuna nykyiseen valikkoon
+                const currentOptionsArray = Array.from(select.options).map(o => o.value).filter(v => v !== "");
+                
+                if (JSON.stringify(newOptionsArray) === JSON.stringify(currentOptionsArray)) {
+                    if (currentValue && optionsSet.has(currentValue)) {
+                        select.value = currentValue;
+                    } else if (currentValue && !optionsSet.has(currentValue) && activeTrainsRaw.length > 0) {
+                        activeFilters[id.replace('filter-', '')] = "";
+                        saveFilters();
+                        select.value = "";
+                    } else {
+                        // Defaultataan kenttä, kun filtteri on poistettu (currentValue on tyhjä)
+                        select.value = "";
+                    }
+                    return; // Keskeytetään, ei tarvetta koskea HTML:ään
+                }
+
+                select.innerHTML = `<option value="">${defaultText}</option>`;
+                
+                newOptionsArray.forEach(opt => {
+                    const optionEl = document.createElement('option');
+                    optionEl.value = opt;
+                    optionEl.textContent = opt;
+                    if (opt === currentValue) optionEl.selected = true;
+                    select.appendChild(optionEl);
+                });
+
+                if (currentValue && !optionsSet.has(currentValue) && activeTrainsRaw.length > 0) {
+                    activeFilters[id.replace('filter-', '')] = "";
+                    saveFilters();
+                }
+            };
+
+            updateSelect('filter-restaurant', restaurants, 'Kaikki ravintolat', activeFilters.restaurant);
+            updateSelect('filter-company', companies, 'Kaikki yritykset', activeFilters.company);
+            updateSelect('filter-department', departments, 'Kaikki osastot', activeFilters.department);
+            updateSelect('filter-team', teams, 'Kaikki tiimit', activeFilters.team);
+        }
+
+        function renderTrains() {
+            const container = document.getElementById('train-feed');
+            const currentUnix = Math.floor(Date.now() / 1000);
+            
+            // 1. Ensin suodatetaan vain ajallisesti validit junat (käyttäjän määrittämä aikaikkuna)
+            let activeTrains = Array.from(trainsMap.values()).filter(ev => {
+                if (showAllTrains) return true;
+                const effective = getTrainEffectiveData(ev);
+                return effective.departure >= (currentUnix - (timeWindowMinutes * 60)); 
+            });
+            
+            // Päivitetään ravintolalistaus (custom-ravintolat ilmestyvät kaikille)
+            populateRestaurantOptions();
+            
+            // Päivitetään dynaamiset pudotusvalikot NÄIDEN junien perusteella (ennen käyttäjän filttereitä)
+            populateDropdownOptions(activeTrains);
+
+            // 2. Sen jälkeen suodatetaan junat käyttäjän pudotusvalinta-filttereillä
+            if (hasActiveFilters()) {
+                activeTrains = activeTrains.filter(ev => {
+                    const loc = getTrainLocationData(ev);
+                    const restaurant = getTagValue(ev, 'restaurant') || "";
+                    
+                    if (activeFilters.restaurant && restaurant !== activeFilters.restaurant) return false;
+                    if (activeFilters.company && loc.company !== activeFilters.company) return false;
+                    if (activeFilters.department && loc.department !== activeFilters.department) return false;
+                    if (activeFilters.team && loc.team !== activeFilters.team) return false;
+                    
+                    return true;
+                });
+            }
+
+            // 2.5 Suodatetaan haamujunat pois (junat ilman matkustajia)
+            if (hideGhostTrains) {
+                activeTrains = activeTrains.filter(ev => getSortedPassengers(ev).length > 0);
+            }
+
+            // 3. Sort: omat junat ensin. Omista uusimmasta vanhimpaan, muista vanhimmasta uusimpaan.
+            activeTrains.sort((a, b) => {
+                const aMine = getSortedPassengers(a).includes(keys.pubKeyHex) ? 1 : 0;
+                const bMine = getSortedPassengers(b).includes(keys.pubKeyHex) ? 1 : 0;
+                if (aMine !== bMine) return bMine - aMine; // omat junat ensin
+                if (aMine === 1) {
+                    // omat junat: uusimmasta vanhimpaan
+                    return getTrainEffectiveData(b).departure - getTrainEffectiveData(a).departure;
+                }
+                // muut junat: vanhimmasta uusimpaan
+                return getTrainEffectiveData(a).departure - getTrainEffectiveData(b).departure;
+            });
+
+            if (activeTrains.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-12 text-slate-500 text-sm glass-card border border-slate-800 rounded-2xl">
+                        Ei aktiivisia lounasjunia juuri nyt. 🚂<br>Ole ensimmäinen ja kuuluta uusi juna!
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = activeTrains.map(ev => {
+                const effective = getTrainEffectiveData(ev);
+                const restaurant = getTagValue(ev, 'restaurant') || "Tuntematon";
+                const timeStr = effective.time;
+                const fromStr = getTagValue(ev, 'from') || "Tuntematon paikka";
+                const depUnix = effective.departure;
+                
+                // Veturi determination (kauiten junassa ollut on veturi)
+                const veturiPubkey = getVeturi(ev);
+                const isVeturi = veturiPubkey === keys.pubKeyHex;
+                const veturiName = veturiPubkey ? 
+                    ((profilesMap.get(veturiPubkey) && profilesMap.get(veturiPubkey).name) ? profilesMap.get(veturiPubkey).name : (veturiPubkey.substring(0,6) + "...")) 
+                    : "Haamujuna 👻";
+                
+                // Status calculation
+                const minDiff = Math.round((depUnix - currentUnix) / 60);
+                let statusBadge = "";
+                if (minDiff < 0) {
+                    statusBadge = `<span class="bg-rose-900/50 text-rose-300 border border-rose-800 px-2 py-0.5 rounded text-xs">Lähti ${Math.abs(minDiff)} min sitten</span>`;
+                } else if (minDiff === 0) {
+                    statusBadge = `<span class="bg-amber-900/50 text-amber-300 border border-amber-800 px-2 py-0.5 rounded text-xs">Lähtee nyt!</span>`;
+                } else {
+                    statusBadge = `<span class="bg-emerald-900/50 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded text-xs">Lähtee ${minDiff} min kuluttua</span>`;
+                }
+
+                // Passengers
+                const passengerReactionMap = reactionsMap.get(ev.id) || new Map();
+                
+                // Suodatetaan pois ne, joiden viimeisin reaktio on "-"
+                const orderedPassengers = getSortedPassengers(ev);
+                    
+                const isMeOnboard = orderedPassengers.includes(keys.pubKeyHex);
+                
+                // Matkustajalistaus hover-työkaluvihjettä varten
+                const passengerNames = orderedPassengers.map((pk, idx) => {
+                    const pName = (profilesMap.get(pk) && profilesMap.get(pk).name) ? profilesMap.get(pk).name : (pk.substring(0,6) + '...');
+                    return (idx === 0 ? '🚂 ' : '') + pName;
+                }).join(', ');
+                
+                let actionButton = "";
+                if (isMeOnboard) {
+                    actionButton = `<button onclick="leaveTrain('${ev.id}')" class="bg-rose-900/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 px-3 py-1.5 rounded-lg transition font-medium text-xs whitespace-nowrap">
+                        <span>-</span> Poistu
+                    </button>`;
+                } else {
+                    actionButton = `<button onclick="joinTrain('${ev.id}')" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition font-medium text-xs whitespace-nowrap">
+                        <span>+</span> Kyytiin
+                    </button>`;
+                }
+
+                // Time adjustment buttons for the veturi (+5 / -5) - kompaktit
+                let timeAdjustButtons = "";
+                if (isVeturi) {
+                    timeAdjustButtons = `
+                        <div class="flex gap-1">
+                            <button onclick="adjustTime('${ev.id}', 5)" class="bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 px-2 py-1 rounded text-xs font-medium transition" title="Myöhäistä 5 min">+5</button>
+                            <button onclick="adjustTime('${ev.id}', -5)" class="bg-slate-800 hover:bg-slate-700 text-rose-400 border border-slate-700 px-2 py-1 rounded text-xs font-medium transition" title="Aikaista 5 min">-5</button>
+                        </div>
+                    `;
+                }
+
+                return `
+                    <div class="glass-card border border-slate-700 rounded-xl px-4 py-2.5 shadow-sm transition hover:border-slate-600 flex items-center gap-3 flex-wrap sm:flex-nowrap">
+                        <div class="flex items-center gap-2 min-w-0 flex-1">
+                            <span class="text-lg">🍽️</span>
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-semibold text-white text-sm truncate">${escapeHtml(restaurant)}</span>
+                                    ${!veturiPubkey ? `<span class="text-xs">👻</span>` : ''}
+                                </div>
+                                <div class="text-xs text-slate-400 truncate">${escapeHtml(fromStr)}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-3 text-xs text-slate-300 whitespace-nowrap">
+                            <span class="font-semibold text-amber-400">${timeStr}</span>
+                            ${statusBadge}
+                            <span class="hidden md:inline text-slate-500">|</span>
+                            <span class="hidden md:inline max-w-[260px] truncate" title="${escapeHtml(passengerNames || 'Ei matkustajia')}">${escapeHtml(passengerNames || 'Ei matkustajia')}</span>
+                        </div>
+                        
+                        <div class="flex items-center gap-1.5">
+                            ${timeAdjustButtons}
+                            ${actionButton}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function getTagValue(event, tagKey) {
+            const tag = event.tags.find(t => t[0] === tagKey);
+            return tag ? tag[1] : null;
+        }
+
+        function hasTag(event, tagKey, tagValue) {
+            return event.tags.some(t => t[0] === tagKey && t[1] === tagValue);
+        }
+
+        function escapeHtml(str) {
+            if (!str) return "";
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+    </script>
+</body>
+</html>
