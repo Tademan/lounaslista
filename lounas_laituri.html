@@ -15,7 +15,7 @@
 <body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
 
     <header class="bg-slate-950 border-b border-slate-800 p-4 sticky top-0 z-20 shadow-lg">
-        <div class="max-w-4xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/20">
                     <span class="text-xl">🚂</span>
@@ -30,6 +30,7 @@
             </div>
             
             <div class="flex items-center gap-2">
+                <span id="header-nickname" class="text-sm text-slate-300 font-medium hidden sm:inline-block"></span>
                 <button id="toggle-debug-btn" class="text-sm bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded-lg border border-slate-700 transition" title="Debug: Näytä raaka JSON">
                     🐛
                 </button>
@@ -40,7 +41,35 @@
         </div>
     </header>
 
-    <main class="max-w-4xl w-full mx-auto p-4 flex-1 flex flex-col gap-6 mt-4">
+    <main class="max-w-7xl w-full mx-auto p-4 flex-1 flex flex-col lg:flex-row gap-6 mt-4">
+
+        <!-- VASEMMAN PUOLEN RAVINTOLALISTA -->
+        <aside class="w-full lg:w-80 xl:w-96 flex-shrink-0">
+            <div class="sticky top-24 space-y-4">
+                <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-5 shadow-xl">
+                    <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                        <span>🍽️</span> Ravintolat & Ruokalistat
+                    </h2>
+                    <div class="mb-4">
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Valitse päivä</label>
+                        <div class="flex items-center gap-2">
+                            <input type="date" id="menu-date-picker" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert">
+                            <button id="menu-date-today-btn" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-2 rounded-lg border border-slate-600 transition whitespace-nowrap">Tänään</button>
+                        </div>
+                    </div>
+                    
+                    <div id="restaurant-menu-list" class="space-y-3">
+                        <!-- Ravintolat renderöidään tähän -->
+                        <div class="text-center py-8 text-slate-500 text-xs">
+                            Ladataan ruokalistoja...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- OIKEAN PUOLEN JUNAT -->
+        <div class="flex-1 min-w-0 flex flex-col gap-6">
 
         <div id="profile-section" class="hidden bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-xl transition-all">
             <div class="flex justify-between items-center mb-4">
@@ -188,6 +217,8 @@
             </div>
         </div>
 
+        </div><!-- /oikea puoli -->
+
         <!-- Debug Modal -->
         <div id="debug-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
             <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl">
@@ -206,6 +237,8 @@
     <script>
         // Constants & State
         const APP_TAG = "lounaslaituri-v1";
+        const MENU_APP_TAG = "lounaslaituri-menu-v1";
+        const COMMENT_APP_TAG = "lounaslaituri-comment-v1";
         const RELAYS = [
             'wss://relay.primal.net',
             'wss://nos.lol',
@@ -224,6 +257,9 @@
         let reactionsMap = new Map(); // Store passengers/reactions (Kind 7)
         let profilesMap = new Map(); // Store authors' profiles (Kind 0)
         let trainUpdatesMap = new Map(); // Store time updates for trains (Kind 1 with "train" tag)
+        let menuEventsMap = new Map(); // Store restaurant menu events (Kind 1 with MENU_APP_TAG)
+        let commentEventsMap = new Map(); // Store comment events (Kind 1 with COMMENT_APP_TAG), key: "restaurant|date" or "restaurant|"
+        let selectedMenuDate = null; // Valittu päivä ruokalistojen katseluun (null = tänään)
         
         // Multi-account state (Debug feature)
         let accounts = [];
@@ -258,8 +294,28 @@
             document.getElementById('time-window-select').addEventListener('change', handleTimeWindowChange);
             document.getElementById('hide-ghost-trains').addEventListener('change', handleGhostTrainsChange);
             
+            // Date picker for menus
+            const datePicker = document.getElementById('menu-date-picker');
+            const todayBtn = document.getElementById('menu-date-today-btn');
+            const todayStr = getTodayStr();
+            datePicker.value = todayStr;
+            selectedMenuDate = todayStr;
+            
+            datePicker.addEventListener('change', () => {
+                selectedMenuDate = datePicker.value || getTodayStr();
+                renderRestaurantMenus();
+            });
+            todayBtn.addEventListener('click', () => {
+                const ts = getTodayStr();
+                datePicker.value = ts;
+                selectedMenuDate = ts;
+                renderRestaurantMenus();
+            });
+            
             // Refresh feed every minute to drop old trains
             setInterval(renderTrains, 60000);
+            setInterval(renderRestaurantMenus, 60000);
+            setInterval(refreshComments, 60000);
             setInterval(updateDebugJSON, 2000); // Auto-update debug view if open
         };
         
@@ -275,6 +331,9 @@
             
             const debugData = {
                 activeAccountPubkey: keys.pubKeyHex,
+                selectedMenuDate: selectedMenuDate,
+                menuEvents: Array.from(menuEventsMap.entries()).map(([k, ev]) => ({ key: k, restaurant: getTagValue(ev, 'restaurant'), date: getTagValue(ev, 'date'), items: ev.tags.filter(t => t[0] === 'item').map(t => t[1]) })),
+                commentEvents: Array.from(commentEventsMap.entries()).map(([k, arr]) => ({ key: k, count: arr.length })),
                 trains: Array.from(trainsMap.values()),
                 trainUpdates: Array.from(trainUpdatesMap.entries()),
                 reactions: Array.from(reactionsMap.entries()).map(([k,v]) => ({ eventId: k, reactions: Array.from(v.values()) })),
@@ -384,7 +443,7 @@
                     accounts = [{
                         privKeyHex: oldPriv,
                         pubKeyHex: oldPub,
-                        profile: oldProf ? JSON.parse(oldProf) : { name: "Käyttäjä 1", company: "", department: "", team: "" }
+                        profile: oldProf ? JSON.parse(oldProf) : { name: `Matkustaja ${randomPassengerNumber()}`, company: "", department: "", team: "" }
                     }];
                 } else {
                     createNewAccount(false);
@@ -403,13 +462,17 @@
             }
         }
 
+        function randomPassengerNumber() {
+            return Math.floor(Math.random() * 1000) + 1;
+        }
+
         function createNewAccount(switchNow = true) {
             const priv = window.NostrTools.generatePrivateKey();
             const pub = window.NostrTools.getPublicKey(priv);
             accounts.push({
                 privKeyHex: priv,
                 pubKeyHex: pub,
-                profile: { name: `Käyttäjä ${accounts.length + 1}`, company: "ABB", department: "", team: "" }
+                profile: { name: `Matkustaja ${randomPassengerNumber()}`, company: "", department: "", team: "" }
             });
             saveAccounts();
             if (switchNow) switchAccount(accounts.length - 1);
@@ -438,6 +501,17 @@
             document.getElementById('profile-company').value = userProfile.company || "";
             document.getElementById('profile-department').value = userProfile.department || "";
             document.getElementById('profile-team').value = userProfile.team || "";
+            updateHeaderNickname();
+        }
+
+        function updateHeaderNickname() {
+            const el = document.getElementById('header-nickname');
+            if (userProfile.name) {
+                el.textContent = '👤 ' + userProfile.name;
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
         }
 
         function saveAccounts() {
@@ -508,9 +582,12 @@
         function subscribeToData(ws) {
             const subId = "sub_" + Math.random().toString(36).substring(7);
             // Get all trains (Kind 1) with our app tag, and reactions (Kind 7)
+            const since = Math.floor(Date.now() / 1000) - (7 * 24 * 3600); // 7 päivää taaksepäin
             const filters = [
-                { kinds: [1], '#t': [APP_TAG], limit: 100 },
-                { kinds: [7], '#t': [APP_TAG], limit: 500 },
+                { kinds: [1], '#t': [APP_TAG], limit: 100, since: since },
+                { kinds: [1], '#t': [MENU_APP_TAG], limit: 200, since: since },
+                { kinds: [1], '#t': [COMMENT_APP_TAG], limit: 300, since: since },
+                { kinds: [7], '#t': [APP_TAG], limit: 500, since: since },
                 { kinds: [0], authors: Array.from(profilesMap.keys()) } // get profiles for known authors
             ];
             ws.send(JSON.stringify(["REQ", subId, ...filters]));
@@ -527,16 +604,47 @@
                 if (data[0] === "EVENT") {
                     const ev = data[2];
                     
-                    if (ev.kind === 1 && hasTag(ev, 't', APP_TAG)) {
+                    if (ev.kind === 1 && hasTag(ev, 't', COMMENT_APP_TAG)) {
+                        // Kommenttitapahtuma
+                        const restaurant = getTagValue(ev, 'restaurant');
+                        const date = getTagValue(ev, 'date') || ''; // tyhjä = yleinen kommentti ravintolalle
+                        if (restaurant) {
+                            const key = restaurant + '|' + date;
+                            if (!commentEventsMap.has(key)) commentEventsMap.set(key, []);
+                            const comments = commentEventsMap.get(key);
+                            // Vältä duplikaatit
+                            if (!comments.some(c => c.id === ev.id)) {
+                                comments.push(ev);
+                                // Järjestä uusin ensin
+                                comments.sort((a, b) => b.created_at - a.created_at);
+                            }
+                            renderRestaurantMenus();
+                        }
+                    }
+                    else if (ev.kind === 1 && hasTag(ev, 't', MENU_APP_TAG)) {
+                        // Ruokalistatapahtuma
+                        const restaurant = getTagValue(ev, 'restaurant');
+                        const date = getTagValue(ev, 'date');
+                        if (restaurant && date) {
+                            const key = restaurant + '|' + date;
+                            const existing = menuEventsMap.get(key);
+                            if (!existing || ev.created_at > existing.created_at) {
+                                menuEventsMap.set(key, ev);
+                            }
+                            renderRestaurantMenus();
+                        }
+                    }
+                    else if (ev.kind === 1 && hasTag(ev, 't', APP_TAG)) {
                         const trainRef = getTagValue(ev, 'train');
-                        if (trainRef && trainsMap.has(trainRef)) {
-                            // This is a time update for an existing train
+                        if (trainRef) {
+                            // Tämä on AINA päivitys olemassa olevaan junaan (ajanmuutos tms.)
                             const existing = trainUpdatesMap.get(trainRef);
                             if (!existing || ev.created_at > existing.created_at) {
                                 trainUpdatesMap.set(trainRef, ev);
                             }
                             renderTrains();
                         } else if (!trainsMap.has(ev.id)) {
+                            // Uusi juna (ei train-tagia)
                             trainsMap.set(ev.id, ev);
                             requestProfileIfNeeded(ev.pubkey);
                             renderTrains();
@@ -601,6 +709,7 @@
 
             publishEvent(eventTemplate);
             
+            updateHeaderNickname();
             const toast = document.getElementById('profile-toast');
             toast.classList.remove('hidden');
             setTimeout(() => toast.classList.add('hidden'), 3000);
@@ -876,9 +985,9 @@
 
         function populateRestaurantOptions() {
             const restaurants = new Set();
-            trainsMap.forEach(ev => {
-                const r = getTagValue(ev, 'restaurant');
-                if (r) restaurants.add(r);
+            menuEventsMap.forEach((ev, key) => {
+                const [restaurant] = key.split('|');
+                if (restaurant) restaurants.add(restaurant);
             });
             
             const select = document.getElementById('train-restaurant');
@@ -913,12 +1022,15 @@
             const departments = new Set();
             const teams = new Set();
 
-            // Kerätään tarjolla olevat vaihtoehdot nykyisten filttereiden perusteella
+            // Kerätään ravintolat menu-tapahtumista (botin postauksista)
+            menuEventsMap.forEach((ev, key) => {
+                const [restaurant] = key.split('|');
+                if (restaurant) restaurants.add(restaurant);
+            });
+
+            // Kerätään yritykset, osastot ja tiimit junista
             activeTrainsRaw.forEach(ev => {
                 const loc = getTrainLocationData(ev);
-                const restaurant = getTagValue(ev, 'restaurant');
-
-                if (restaurant) restaurants.add(restaurant);
                 if (loc.company) companies.add(loc.company);
                 if (loc.department && (!activeFilters.company || activeFilters.company === loc.company)) {
                     departments.add(loc.department);
@@ -1130,9 +1242,308 @@
             return event.tags.some(t => t[0] === tagKey && t[1] === tagValue);
         }
 
+        function getTrainsForRestaurant(restaurantName) {
+            const currentUnix = Math.floor(Date.now() / 1000);
+            return Array.from(trainsMap.values()).filter(ev => {
+                const r = getTagValue(ev, 'restaurant');
+                if (r !== restaurantName) return false;
+                const effective = getTrainEffectiveData(ev);
+                if (!showAllTrains && effective.departure < (currentUnix - (timeWindowMinutes * 60))) return false;
+                return true;
+            }).map(ev => ({
+                id: ev.id,
+                time: getTrainEffectiveData(ev).time,
+                departure: getTrainEffectiveData(ev).departure
+            })).sort((a, b) => a.departure - b.departure);
+        }
+
+        function quickCreateTrain(restaurantName) {
+            const select = document.getElementById('train-restaurant');
+            // Tarkista löytyykö ravintola valikosta
+            const options = Array.from(select.options).map(o => o.value);
+            if (options.includes(restaurantName)) {
+                select.value = restaurantName;
+            } else {
+                // Jos ei löydy valmiina, käytä custom-kenttää
+                select.value = "__NEW__";
+                const customInput = document.getElementById('custom-restaurant-input');
+                customInput.classList.remove('hidden');
+                customInput.value = restaurantName;
+            }
+            document.getElementById('train-time').focus();
+            document.getElementById('train-time').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function refreshComments() {
+            // Hae kommentit uudelleen reileiltä
+            activeSockets.forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    const subId = "cmt_refresh_" + Math.random().toString(36).substring(7);
+                    ws.send(JSON.stringify(["REQ", subId, { kinds: [1], '#t': [COMMENT_APP_TAG], limit: 300 }]));
+                }
+            });
+        }
+
+        function getCommentsForRestaurant(restaurant, date) {
+            const generalKey = restaurant + '|';
+            const dateKey = restaurant + '|' + date;
+            const generalComments = commentEventsMap.get(generalKey) || [];
+            const dateComments = commentEventsMap.get(dateKey) || [];
+            return { general: generalComments, date: dateComments };
+        }
+
+        function renderCommentsHtml(restaurant, date) {
+            const { general, date: dateComments } = getCommentsForRestaurant(restaurant, date);
+            const allComments = [...dateComments, ...general].sort((a, b) => b.created_at - a.created_at);
+            
+            if (allComments.length === 0) return '';
+            
+            const maxVisible = 3;
+            const visibleComments = allComments.slice(0, maxVisible);
+            const hasMore = allComments.length > maxVisible;
+            const commentId = 'comments_' + restaurant.replace(/[^a-zA-Z0-9]/g, '_') + '_' + date;
+            
+            let html = `
+                <div class="mt-3 pt-3 border-t border-slate-700/50">
+                    <h4 class="text-xs font-medium text-slate-400 mb-2">💬 Kommentit (${allComments.length})</h4>
+                    <div class="space-y-2" id="${commentId}">
+            `;
+            
+            visibleComments.forEach(ev => {
+                const authorName = (profilesMap.get(ev.pubkey) && profilesMap.get(ev.pubkey).name) 
+                    ? profilesMap.get(ev.pubkey).name 
+                    : (ev.pubkey.substring(0, 6) + '...');
+                const timeAgo = getTimeAgo(ev.created_at);
+                const dateTag = getTagValue(ev, 'date');
+                const isDateComment = dateTag !== null && dateTag !== '';
+                const badge = isDateComment 
+                    ? '<span class="text-xs text-indigo-400 font-medium" title="Kommentoi tämän päivän ruokalistaa">📅 Päivän lista</span>' 
+                    : '<span class="text-xs text-amber-400 font-medium" title="Yleinen kommentti ravintolasta">🏷️ Ravintola</span>';
+                
+                html += `
+                    <div class="bg-slate-900/70 rounded-lg px-2.5 py-1.5">
+                        <div class="flex justify-between items-center mb-0.5">
+                            <span class="text-xs font-medium text-slate-300">${escapeHtml(authorName)}</span>
+                            <div class="flex items-center gap-1.5">
+                                ${badge}
+                                <span class="text-xs text-slate-500">${timeAgo}</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-400">${escapeHtml(ev.content)}</p>
+                    </div>
+                `;
+            });
+            
+            if (hasMore) {
+                html += `
+                    <button onclick="toggleAllComments('${commentId}', '${escapeHtml(restaurant).replace(/'/g, "\\'")}', '${date}')" class="text-xs text-indigo-400 hover:text-indigo-300 transition">
+                        Näytä kaikki ${allComments.length} kommenttia...
+                    </button>
+                `;
+            }
+            
+            html += `</div></div>`;
+            return html;
+        }
+
+        window.toggleAllComments = function(commentId, restaurant, date) {
+            const container = document.getElementById(commentId);
+            if (!container) return;
+            
+            const { general, date: dateComments } = getCommentsForRestaurant(restaurant, date);
+            const allComments = [...dateComments, ...general].sort((a, b) => b.created_at - a.created_at);
+            
+            container.innerHTML = allComments.map(ev => {
+                const authorName = (profilesMap.get(ev.pubkey) && profilesMap.get(ev.pubkey).name) 
+                    ? profilesMap.get(ev.pubkey).name 
+                    : (ev.pubkey.substring(0, 6) + '...');
+                const timeAgo = getTimeAgo(ev.created_at);
+                const dateTag = getTagValue(ev, 'date');
+                const isDateComment = dateTag !== null && dateTag !== '';
+                const badge = isDateComment 
+                    ? '<span class="text-xs text-indigo-400 font-medium" title="Kommentoi tämän päivän ruokalistaa">📅 Päivän lista</span>' 
+                    : '<span class="text-xs text-amber-400 font-medium" title="Yleinen kommentti ravintolasta">🏷️ Ravintola</span>';
+                
+                return `
+                    <div class="bg-slate-900/70 rounded-lg px-2.5 py-1.5">
+                        <div class="flex justify-between items-center mb-0.5">
+                            <span class="text-xs font-medium text-slate-300">${escapeHtml(authorName)}</span>
+                            <div class="flex items-center gap-1.5">
+                                ${badge}
+                                <span class="text-xs text-slate-500">${timeAgo}</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-400">${escapeHtml(ev.content)}</p>
+                    </div>
+                `;
+            }).join('') + `
+                <button onclick="renderRestaurantMenus()" class="text-xs text-indigo-400 hover:text-indigo-300 transition">
+                    Näytä vähemmän
+                </button>
+            `;
+        };
+
+        function getTimeAgo(unixTimestamp) {
+            const now = Math.floor(Date.now() / 1000);
+            const diff = now - unixTimestamp;
+            if (diff < 60) return 'juuri nyt';
+            if (diff < 3600) return Math.floor(diff / 60) + ' min sitten';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' h sitten';
+            return Math.floor(diff / 86400) + ' pv sitten';
+        }
+
+        // Tallenna kommentti-togglejen tila renderöintien yli
+        window._commentToggles = window._commentToggles || {};
+
+        window.submitComment = function(restaurant, date) {
+            if (!userProfile.name) {
+                alert("Täytä profiili ensin, jotta voit kommentoida!");
+                toggleProfile();
+                return;
+            }
+            
+            const inputId = 'comment-input-' + restaurant.replace(/[^a-zA-Z0-9]/g, '_') + '-' + date;
+            const toggleId = 'comment-toggle-' + restaurant.replace(/[^a-zA-Z0-9]/g, '_') + '-' + date;
+            const input = document.getElementById(inputId);
+            const toggle = document.getElementById(toggleId);
+            
+            if (!input || !input.value.trim()) return;
+            
+            const isDateComment = toggle ? toggle.checked : true;
+            
+            // Tallenna toggle-tila ennen renderöintiä
+            const toggleKey = restaurant + '|' + date;
+            window._commentToggles[toggleKey] = isDateComment;
+            
+            const tags = [
+                ['t', COMMENT_APP_TAG],
+                ['restaurant', restaurant]
+            ];
+            
+            if (isDateComment) {
+                tags.push(['date', date]);
+            }
+            
+            const eventTemplate = {
+                kind: 1,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: tags,
+                content: input.value.trim(),
+                pubkey: keys.pubKeyHex
+            };
+            
+            publishEvent(eventTemplate);
+            input.value = '';
+        };
+
+        function getTodayStr() {
+            // Käytä Suomen aikavyöhykettä (Europe/Helsinki)
+            const now = new Date();
+            const helsinki = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Helsinki' }));
+            return helsinki.getFullYear() + '-' + String(helsinki.getMonth() + 1).padStart(2, '0') + '-' + String(helsinki.getDate()).padStart(2, '0');
+        }
+
+        function renderRestaurantMenus() {
+            const container = document.getElementById('restaurant-menu-list');
+            const viewDate = selectedMenuDate || getTodayStr();
+            
+            // Kerää kaikki valitun päivän ruokalistat
+            const todayMenus = [];
+            menuEventsMap.forEach((ev, key) => {
+                const [restaurant, date] = key.split('|');
+                if (date === viewDate) {
+                    const items = [];
+                    ev.tags.forEach(tag => {
+                        if (tag[0] === 'item') items.push(tag[1]);
+                    });
+                    const price = getTagValue(ev, 'price') || '';
+                    const hours = getTagValue(ev, 'hours') || '';
+                    const notes = getTagValue(ev, 'notes') || '';
+                    const source = getTagValue(ev, 'source') || '';
+                    
+                    todayMenus.push({ restaurant, items, price, hours, notes, source });
+                }
+            });
+            
+            // Järjestä aakkosittain
+            todayMenus.sort((a, b) => a.restaurant.localeCompare(b.restaurant, 'fi'));
+            
+            if (todayMenus.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-slate-500 text-xs">
+                        <p>Ei ruokalistoja tälle päivälle.</p>
+                        <p class="mt-1">Ruokalistat päivittyvät automaattisesti.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const helsinkiNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Helsinki' }));
+            const days = ['Sunnuntai', 'Maanantai', 'Tiistai', 'Keskiviikko', 'Torstai', 'Perjantai', 'Lauantai'];
+            const dayName = days[helsinkiNow.getDay()];
+            const dateFormatted = `${helsinkiNow.getDate()}.${helsinkiNow.getMonth() + 1}.${helsinkiNow.getFullYear()}`;
+            
+            container.innerHTML = `
+                <div class="text-xs text-slate-500 mb-3">${dayName} ${dateFormatted}</div>
+                ${todayMenus.map(menu => {
+                    const trains = getTrainsForRestaurant(menu.restaurant);
+                    return `
+                    <div class="bg-slate-900/50 border border-slate-700/50 rounded-xl p-3">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-sm font-semibold text-white">${escapeHtml(menu.restaurant)}</h3>
+                            ${menu.price ? `<span class="text-xs text-amber-400 font-medium">${escapeHtml(menu.price)} €</span>` : ''}
+                        </div>
+                        ${menu.items.length > 0 ? `
+                            <ul class="space-y-1 mb-2">
+                                ${menu.items.map(item => `
+                                    <li class="text-xs text-slate-300 flex items-start gap-1.5">
+                                        <span class="text-indigo-400 mt-0.5">•</span>
+                                        <span>${escapeHtml(item)}</span>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        ` : `<p class="text-xs text-slate-500 mb-2">Ei ruokalajeja listattu.</p>`}
+                        <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 mb-2">
+                            ${menu.hours ? `<span>🕐 ${escapeHtml(menu.hours)}</span>` : ''}
+                            ${menu.notes ? `<span>📝 ${escapeHtml(menu.notes)}</span>` : ''}
+                            ${menu.source ? `<a href="${escapeHtml(menu.source)}" target="_blank" rel="noopener" class="text-indigo-400 hover:text-indigo-300 underline">🔗 Lähde</a>` : ''}
+                        </div>
+                        ${trains.length > 0 ? `
+                            <div class="flex flex-wrap items-center gap-1.5 mt-1">
+                                <span class="text-xs text-slate-500">🚂</span>
+                                ${trains.map(t => `
+                                    <button onclick="joinTrain('${t.id}')" class="text-xs bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-700/50 px-2 py-0.5 rounded-lg transition font-medium" title="Hyppää junaan klo ${t.time}">
+                                        ${t.time}
+                                    </button>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                        <button onclick="quickCreateTrain('${escapeHtml(menu.restaurant).replace(/'/g, "\\'")}')" class="w-full text-xs bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-700/30 px-2 py-1 rounded-lg transition font-medium mt-2">
+                            📢 Kuuluta juna tänne
+                        </button>
+                        ${renderCommentsHtml(menu.restaurant, viewDate)}
+                        <div class="mt-3 pt-3 border-t border-slate-700/50">
+                            <div class="flex items-center gap-2 mb-1.5">
+                                <input type="text" id="comment-input-${menu.restaurant.replace(/[^a-zA-Z0-9]/g, '_')}-${viewDate}" 
+                                       class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none text-slate-200" 
+                                       placeholder="Kirjoita kommentti...">
+                                <button onclick="submitComment('${escapeHtml(menu.restaurant).replace(/'/g, "\\'")}', '${viewDate}')" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition font-medium">
+                                    Lähetä
+                                </button>
+                            </div>
+                            <label class="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer select-none">
+                                <input type="checkbox" id="comment-toggle-${menu.restaurant.replace(/[^a-zA-Z0-9]/g, '_')}-${viewDate}" ${(window._commentToggles[menu.restaurant + '|' + viewDate] !== false) ? 'checked' : ''} class="accent-indigo-500 w-3 h-3">
+                                Kommentoi tätä päivää 📅
+                            </label>
+                        </div>
+                    </div>
+                `}).join('')}
+            `;
+        }
+
         function escapeHtml(str) {
             if (!str) return "";
-            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            return str.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
         }
     </script>
 </body>
