@@ -6,13 +6,27 @@ import json
 import locale
 import os
 import time
+import re
+import ssl
 from bs4 import BeautifulSoup
+
+try:
+    from nostr.event import Event
+    from nostr.key import PrivateKey
+    from nostr.relay_manager import RelayManager
+    NOSTR_AVAILABLE = True
+except ImportError:
+    NOSTR_AVAILABLE = False
 
 # --- GLOBAALIT ASETUKSET ---
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
 }
+
+# Laita tähän lounasbotin hex-yksityisavain. 
+# Välttämätön kiinteänä, jotta client osaa korvata vanhat saman päivän menut uudemmalla created_at -arvolla.
+BOT_PRIV_KEY = os.environ.get("BOT_PRIV_KEY")
 
 def aseta_suomi_lokaali():
     for loc in ['fi_FI.UTF-8', 'fi_FI', 'Finnish']:
@@ -26,22 +40,13 @@ def aseta_suomi_lokaali():
 # --- RAVINTOLAKIRJASTOT ---
 
 def hae_herkkuhetki():
-    import re
     import base64
-    import requests
-    import datetime
-    
     url = "https://herkkuhetkitali.fi/"
     try:
         res = requests.get(url, headers=HEADERS, timeout=15, verify=False)
-        
-        if res.status_code != 200:
-            print(f"Herkkuhetki esti yhteyden (Status: {res.status_code})")
-            return [f"Yhteys estettiin (Virhe {res.status_code})"]
-            
+        if res.status_code != 200: return [f"Yhteys estettiin (Virhe {res.status_code})"]
         res.encoding = 'utf-8'
         html = res.text
-        
         try:
             from zoneinfo import ZoneInfo
             tanaan = datetime.datetime.now(ZoneInfo("Europe/Helsinki")).date()
@@ -58,11 +63,10 @@ def hae_herkkuhetki():
         vp_tanaan = viikonpaivat[tanaan.weekday()] if tanaan.weekday() < 5 else None
         
         menu_data = ""
-        
-        if 'weeklyMenu' in html and 'dayName' in html:
-            menu_data = html
+        if 'weeklyMenu' in html and 'dayName' in html: menu_data = html
         else:
-            b64_matches = re.findall(r'base64,([^"\'\s>]+)', html)
+            # VAIHDETTU: r"..." korjaa GitHubin värjäysbugin
+            b64_matches = re.findall(r"base64,([^\"'\s>]+)", html)
             for b64 in b64_matches:
                 b64_clean = re.sub(r'\s+', '', b64)
                 b64_clean += "=" * ((4 - len(b64_clean) % 4) % 4)
@@ -71,51 +75,39 @@ def hae_herkkuhetki():
                     if 'weeklyMenu' in decoded:
                         menu_data = decoded
                         break
-                except:
-                    continue
+                except: continue
 
         if not menu_data:
             js_files = re.findall(r'<script[^>]+src="([^"]+\.js[^"]*)"', html)
             for js_url in js_files:
-                if not js_url.startswith('http'):
-                    js_url = "https://herkkuhetkitali.fi" + js_url
+                if not js_url.startswith('http'): js_url = "https://herkkuhetkitali.fi" + js_url
                 try:
                     js_res = requests.get(js_url, headers=HEADERS, timeout=5, verify=False)
                     if 'weeklyMenu' in js_res.text:
                         menu_data = js_res.text
                         break
-                except:
-                    continue
+                except: continue
 
-        if not menu_data:
-            return []
+        if not menu_data: return []
 
         def korjaa_teksti(teksti):
             t = teksti.replace('\\/', '/')
-            try:
-                t = t.encode().decode('unicode-escape')
-            except:
-                pass
-            try:
-                t = t.encode('latin-1').decode('utf-8')
-            except:
-                pass
+            try: t = t.encode().decode('unicode-escape')
+            except: pass
+            try: t = t.encode('latin-1').decode('utf-8')
+            except: pass
             return t.strip()
 
         days_data = re.split(r'\{id:\s*\d+\s*,\s*dayName:', menu_data)
-        
         for i, day_block in enumerate(days_data):
             if i == 0: continue
-            
             date_match = re.search(r'date\s*:\s*"([^"]+)"', day_block)
             lohko_pvm = date_match.group(1) if date_match else ""
-            
             dayname_match = re.search(r'^\s*"([^"]+)"', day_block)
             lohko_vp = dayname_match.group(1) if dayname_match else ""
             
             is_today = any(pvm == lohko_pvm for pvm in pvm_vaihtoehdot)
-            if not is_today and vp_tanaan and vp_tanaan.lower() in lohko_vp.lower():
-                is_today = True
+            if not is_today and vp_tanaan and vp_tanaan.lower() in lohko_vp.lower(): is_today = True
                 
             if is_today:
                 tulos = []
@@ -123,15 +115,10 @@ def hae_herkkuhetki():
                 for title, items_raw in sections:
                     title_clean = korjaa_teksti(title)
                     tulos.append(f"<strong>{title_clean}</strong>")
-                    
                     ruoat = re.findall(r'"([^"]+)"', items_raw)
-                    for r in ruoat:
-                        tulos.append(f"• {korjaa_teksti(r)}")
-                
+                    for r in ruoat: tulos.append(f"• {korjaa_teksti(r)}")
                 return tulos
-        
         return []
-        
     except Exception as e:
         print(f"Virhe Herkkuhetken haussa: {e}")
         return []
@@ -141,33 +128,25 @@ def hae_tellus():
     try:
         res = requests.get(url, headers=HEADERS, timeout=10, verify=False)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
         script = soup.find('script', id='restaurant-structured-data')
         if not script: return []
-        
         data = json.loads(script.string)
         pvm = datetime.date.today().strftime("%Y-%m-%d")
         tulos = []
-        
         paivat = data.get('hasMenu', {}).get('hasMenuSection', [])
         paiva_data = next((p for p in paivat if p.get('validFrom') == pvm), None)
-        
         if not paiva_data: return []
         
         for kategoria in paiva_data.get('hasMenuSection', []):
             kat_nimi = kategoria.get('name', '').strip()
-            if kat_nimi:
-                tulos.append(f"<strong>{kat_nimi}</strong>")
-            
+            if kat_nimi: tulos.append(f"<strong>{kat_nimi}</strong>")
             for item in kategoria.get('hasMenuItem', []):
                 ruoka = item.get('name', '').strip()
                 desc = item.get('description', '').strip()
                 diets = f" ({desc})" if desc else ""
                 tulos.append(f"• {ruoka}{diets}")
-                
         return tulos
-    except: 
-        return []
+    except: return []
 
 def hae_por():
     url = "https://por.fi/menu/"
@@ -177,40 +156,28 @@ def hae_por():
         haku = f"{datetime.date.today().strftime('%A').capitalize()} {datetime.date.today().strftime(fmt)}"
         res = requests.get(url, headers=HEADERS, timeout=10, verify=False)
         res.raise_for_status() 
-        
         soup = BeautifulSoup(res.text, 'html.parser')
         tag = next((t for t in soup.find_all('strong') if t.get_text(strip=True).startswith(haku)), None)
-        
-        if not tag: 
-            return [f"Virhe: Kuluvan päivän otsikkoa '{haku}' ei löytynyt."]
+        if not tag: return [f"Virhe: Kuluvan päivän otsikkoa '{haku}' ei löytynyt."]
             
         p_tag = tag.parent
-        for br in p_tag.find_all('br'): 
-            br.replace_with("||")
-            
+        for br in p_tag.find_all('br'): br.replace_with("||")
         kaikki_rivit = [r.strip() for r in p_tag.get_text().split("||") if r.strip()]
         
         tulos = []
         kerataan = False
         viikonpaivat = ["Maanantai", "Tiistai", "Keskiviikko", "Torstai", "Perjantai", "Lauantai", "Sunnuntai"]
-        
         for rivi in kaikki_rivit:
             if rivi.startswith(haku):
                 kerataan = True
                 continue
             elif kerataan and any(rivi.startswith(vp) for vp in viikonpaivat):
                 break
-            
-            if kerataan:
-                tulos.append(f"• {rivi}")
+            if kerataan: tulos.append(f"• {rivi}")
                 
-        if not tulos:
-            return ["Virhe: Otsikko löytyi, mutta ruokia ei."]
-            
+        if not tulos: return ["Virhe: Otsikko löytyi, mutta ruokia ei."]
         return tulos
-        
-    except Exception as e:
-        return [f"Virhe listan haussa: {e}"]
+    except Exception as e: return [f"Virhe listan haussa: {e}"]
 
 def hae_factory():
     url = "https://ravintolafactory.com/lounasravintolat/ravintolat/helsinki-pitajanmaki/"
@@ -235,19 +202,14 @@ def hae_antell():
         if idx > 4: return []
         res = requests.get(url, headers=HEADERS, timeout=15, verify=False)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
         paneeli = soup.find('section', id=f"panel-{paivat[idx]}")
         if not paneeli: return []
         
         tulos = []
         nappulat = paneeli.find_all('button', class_='accordion__button')
-        
-        for btn in nappulat:
-            tulos.append(f"• {btn.get_text(strip=True)}")
-            
+        for btn in nappulat: tulos.append(f"• {btn.get_text(strip=True)}")
         return tulos
-    except: 
-        return []
+    except: return []
 
 def hae_faundori():
     url = "https://ravintolapalvelut.iss.fi/ravintola-faundori?lang=fi"
@@ -284,7 +246,8 @@ def hae_lasihelmi():
 
 def luo_html_raportti(data_lista, pvm):
     ajoaika = datetime.datetime.now().strftime("%H:%M:%S")
-    html_template = f'''<!DOCTYPE html>
+    # VAIHDETTU: """ korjaa GitHubin värjäysbugin
+    html_template = f"""<!DOCTYPE html>
 <html lang="fi">
 <head>
     <meta charset="UTF-8">
@@ -293,42 +256,11 @@ def luo_html_raportti(data_lista, pvm):
         body {{ font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }}
         h1 {{ text-align: center; color: #1a1a1a; margin-bottom: 5px; }}
         .timestamp {{ text-align: center; color: #666; font-size: 0.9em; margin-bottom: 30px; font-style: italic; }}
-        .grid {{ 
-            display: flex; 
-            flex-wrap: wrap; 
-            gap: 15px; 
-            justify-content: center; 
-        }}
-        .card {{ 
-            background: white; 
-            width: calc(25% - 20px); 
-            min-width: 250px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }}
-        .card-header {{ 
-            background: #2c3e50; 
-            color: white; 
-            padding: 15px; 
-            position: relative;
-        }}
+        .grid {{ display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; }}
+        .card {{ background: white; width: calc(25% - 20px); min-width: 250px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); display: flex; flex-direction: column; overflow: hidden; }}
+        .card-header {{ background: #2c3e50; color: white; padding: 15px; position: relative; }}
         .card-header h2 {{ margin: 0; font-size: 1.1em; padding-right: 60px; }}
-        .copy-btn {{
-            position: absolute;
-            right: 10px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: #34495e;
-            color: white;
-            border: 1px solid #ffffff44;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.75em;
-        }}
+        .copy-btn {{ position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: #34495e; color: white; border: 1px solid #ffffff44; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75em; }}
         .copy-btn:hover {{ background: #1abc9c; }}
         .card-content {{ padding: 15px; flex-grow: 1; font-size: 0.85em; color: #444; }}
         ul {{ list-style: none; padding: 0; margin: 0; }}
@@ -336,7 +268,6 @@ def luo_html_raportti(data_lista, pvm):
         strong {{ color: #d35400; display: block; margin-top: 8px; }}
         .card-footer {{ padding: 10px; background: #fafafa; text-align: center; border-top: 1px solid #eee; }}
         .card-footer a {{ font-size: 0.8em; color: #3498db; text-decoration: none; font-weight: bold; }}
-        
         @media (max-width: 1200px) {{ .card {{ width: calc(33.33% - 20px); }} }}
         @media (max-width: 900px) {{ .card {{ width: calc(50% - 20px); }} }}
         @media (max-width: 600px) {{ .card {{ width: 100%; }} }}
@@ -345,15 +276,11 @@ def luo_html_raportti(data_lista, pvm):
         function copyToClipboard(id, restaurantName, btn) {{
             const text = document.getElementById(id).innerText;
             const tempInput = document.createElement("textarea");
-            
-            // Liitetään ravintolan nimi ja sen alle puhdistettu ruokalista
             tempInput.value = restaurantName + "\\n" + text.replace(/• /g, "");
-            
             document.body.appendChild(tempInput);
             tempInput.select();
             document.execCommand("copy");
             document.body.removeChild(tempInput);
-            
             const originalText = btn.innerText;
             btn.innerText = "Kopioitu!";
             setTimeout(() => btn.innerText = originalText, 2000);
@@ -363,15 +290,15 @@ def luo_html_raportti(data_lista, pvm):
 <body>
     <h1>🍴 Lounaslistat Pitäjänmäki {pvm}</h1>
     <div class="timestamp">Päivitetty (skripti ajettu): {pvm} klo {ajoaika}</div>
-    <div class="grid">'''
+    <div class="grid">"""
 
     for i, r in enumerate(data_lista):
         safe_id = f"menu-{i}"
         rivit_html = "".join([f"<li>{rivi}</li>" for rivi in r["rivit"]]) if r["rivit"] else "<li style='color:gray'>Ei listaa saatavilla.</li>"
-        
         safe_name = r['nimi'].replace("'", "\\'")
         
-        html_template += f'''
+        # VAIHDETTU: """ korjaa GitHubin värjäysbugin
+        html_template += f"""
         <div class="card">
             <div class="card-header">
                 <h2>{r['nimi']}</h2>
@@ -379,16 +306,93 @@ def luo_html_raportti(data_lista, pvm):
             </div>
             <div class="card-content" id="{safe_id}"><ul>{rivit_html}</ul></div>
             <div class="card-footer"><a href="{r['url']}" target="_blank">Lähde &rarr;</a></div>
-        </div>'''
+        </div>"""
 
-    html_template += '''
+    # VAIHDETTU: """ korjaa GitHubin värjäysbugin
+    html_template += """
     </div>
 </body>
-</html>'''
+</html>"""
     
     with open("lounas.html", "w", encoding="utf-8") as f:
         f.write(html_template)
     return os.path.abspath("lounas.html")
+
+# --- NOSTR GENEROINTI ---
+
+def julkaise_nostriin(data_lista, pvm_str):
+    if not NOSTR_AVAILABLE:
+        print("\nVAROITUS: 'nostr'-kirjastoa ei löydy. Nostr-julkaisu ohitettu.")
+        print("Asenna ajaen: pip install nostr websocket-client")
+        return
+
+    print("\nJulkaistaan ruokalistat Nostr-verkkoon Lounas Laituria varten...")
+    
+    if BOT_PRIV_KEY:
+        pk = PrivateKey(bytes.fromhex(BOT_PRIV_KEY))
+    else:
+        pk = PrivateKey()
+        print(f"Huom: Käytetään satunnaista kertakäyttöavainta.")
+        print(f"Aseta skriptiin kiinteä avain, jotta listojen päivitykset korvautuvat oikein verkossa.")
+
+    relay_manager = RelayManager()
+    relays = [
+        'wss://relay.primal.net',
+        'wss://nos.lol',
+        'wss://relay.nostr.band',
+        'wss://relay.snort.social'
+    ]
+    for relay in relays:
+        relay_manager.add_relay(relay)
+    
+    ssl_opts = {"cert_reqs": ssl.CERT_NONE} if hasattr(ssl, "CERT_NONE") else None
+    relay_manager.open_connections(ssl_opts)
+    time.sleep(2) # Annetaan Websocket-yhteyksille aikaa avautua
+
+    # Lounas Laituri vaatii päivämäärän YYYY-MM-DD -muodossa
+    try:
+        d, m, y = pvm_str.split('.')
+        iso_date = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+    except ValueError:
+        iso_date = datetime.date.today().strftime("%Y-%m-%d")
+
+    for r in data_lista:
+        # Riisutaan " (tarjotin saatavilla)", jotta nimi täsmää täydellisesti junien nimien kanssa
+        puhdas_nimi = r['nimi'].replace(" (tarjotin saatavilla)", "").strip()
+        
+        tags = [
+            ['t', 'lounaslaituri-menu-v1'],
+            ['restaurant', puhdas_nimi],
+            ['date', iso_date],
+            ['source', r['url']]
+        ]
+
+        puhtaat_rivit = []
+        for rivi in r['rivit']:
+            # Puhdistetaan riviltä HTML ja luotimerkit, Lounas Laituri renderöi tyylit itse
+            puhdas = re.sub(r'<[^>]+>', '', rivi).replace('• ', '').strip()
+            if puhdas:
+                tags.append(['item', puhdas])
+                puhtaat_rivit.append(puhdas)
+        
+        if not puhtaat_rivit:
+            continue # Ei julkaista tyhjiä listoja reileille asti
+        
+        # Muiden Nostr-clienttien varalle tekstisisältö
+        content = f"Lounas: {puhdas_nimi} ({iso_date})\n\n" + "\n".join(f"- {rivi}" for rivi in puhtaat_rivit)
+
+        event = Event(
+            public_key=pk.public_key.hex(),
+            content=content,
+            kind=1,
+            tags=tags
+        )
+        pk.sign_event(event)
+        relay_manager.publish_event(event)
+        print(f" -> {puhdas_nimi} julkaistu.")
+
+    time.sleep(2) # Varmistetaan että sanomat ehtivät mennä läpi ennen sulkemista
+    relay_manager.close_connections()
 
 # --- PÄÄOHJELMA ---
 
@@ -418,7 +422,11 @@ def aja_haku():
 
     polku = luo_html_raportti(keratty_data, tanaan)
     print(f"\nVALMIS! HTML-tiedosto luotu: {polku}")
-    print("Yksittäiset listat voit nyt kopioida suoraan selaimesta 'Kopioi'-napilla.")
+    
+    # Nostr-päivitys
+    julkaise_nostriin(keratty_data, tanaan)
+    
+    print("\nYksittäiset listat voit nyt kopioida suoraan selaimesta 'Kopioi'-napilla.")
 
 if __name__ == "__main__":
     aja_haku()
