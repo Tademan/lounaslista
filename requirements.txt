@@ -1,3 +1,5 @@
 requests
 beautifulsoup4
 urllib3
+nostr
+websocket-client
