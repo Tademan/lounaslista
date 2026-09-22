@@ -65,7 +65,6 @@ def hae_herkkuhetki():
         menu_data = ""
         if 'weeklyMenu' in html and 'dayName' in html: menu_data = html
         else:
-            # VAIHDETTU: r"..." korjaa GitHubin värjäysbugin
             b64_matches = re.findall(r"base64,([^\"'\s>]+)", html)
             for b64 in b64_matches:
                 b64_clean = re.sub(r'\s+', '', b64)
@@ -246,7 +245,6 @@ def hae_lasihelmi():
 
 def luo_html_raportti(data_lista, pvm):
     ajoaika = datetime.datetime.now().strftime("%H:%M:%S")
-    # VAIHDETTU: """ korjaa GitHubin värjäysbugin
     html_template = f"""<!DOCTYPE html>
 <html lang="fi">
 <head>
@@ -297,7 +295,6 @@ def luo_html_raportti(data_lista, pvm):
         rivit_html = "".join([f"<li>{rivi}</li>" for rivi in r["rivit"]]) if r["rivit"] else "<li style='color:gray'>Ei listaa saatavilla.</li>"
         safe_name = r['nimi'].replace("'", "\\'")
         
-        # VAIHDETTU: """ korjaa GitHubin värjäysbugin
         html_template += f"""
         <div class="card">
             <div class="card-header">
@@ -308,7 +305,6 @@ def luo_html_raportti(data_lista, pvm):
             <div class="card-footer"><a href="{r['url']}" target="_blank">Lähde &rarr;</a></div>
         </div>"""
 
-    # VAIHDETTU: """ korjaa GitHubin värjäysbugin
     html_template += """
     </div>
 </body>
@@ -347,7 +343,7 @@ def julkaise_nostriin(data_lista, pvm_str):
     
     ssl_opts = {"cert_reqs": ssl.CERT_NONE} if hasattr(ssl, "CERT_NONE") else None
     relay_manager.open_connections(ssl_opts)
-    time.sleep(2) # Annetaan Websocket-yhteyksille aikaa avautua
+    time.sleep(4) # Varmistetaan riittävä aika yhdistää
 
     # Lounas Laituri vaatii päivämäärän YYYY-MM-DD -muodossa
     try:
@@ -388,10 +384,17 @@ def julkaise_nostriin(data_lista, pvm_str):
             tags=tags
         )
         pk.sign_event(event)
-        relay_manager.publish_event(event)
+        
+        event_message = event.to_message()
+        for relay_url, relay in relay_manager.relays.items():
+            try:
+                relay.publish(event_message)
+            except Exception:
+                pass # Sivuutetaan kaatuneet tai yhdistämättömät reilet hiljaa
+                
         print(f" -> {puhdas_nimi} julkaistu.")
 
-    time.sleep(2) # Varmistetaan että sanomat ehtivät mennä läpi ennen sulkemista
+    time.sleep(4) # Varmistetaan että sanomat ehtivät mennä läpi ennen sulkemista
     relay_manager.close_connections()
 
 # --- PÄÄOHJELMA ---
