@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🍴 Lounaslistat Pitäjänmäki</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/nostr-tools@1.17.0/lib/nostr.bundle.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 0;
+            color: #1a1a1a;
+        }
+        .card-header-bg {
+            background: #2c3e50;
+        }
+        .copy-btn {
+            background: #34495e;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.27);
+            transition: all 0.2s ease;
+        }
+        .copy-btn:hover {
+            background: #1abc9c;
+            border-color: #1abc9c;
+        }
+        .menu-category-title {
+            color: #d35400;
+            display: block;
+            margin-top: 8px;
+            font-weight: 700;
+        }
+        .card-shadow {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        /* Poistetaan overflow: hidden korteista, jotta emojivalikko ei leikkaannu */
+        .card-container {
+            overflow: visible !important;
+        }
+        /* Custom scrollbar for comments */
+        .comments-scroll::-webkit-scrollbar {
+            width: 5px;
+        }
+        .comments-scroll::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+        .comments-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        /* Teams-tyylinen emoji-valikko */
+        .emoji-picker-popover {
+            animation: popIn 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes popIn {
+            from { opacity: 0; transform: scale(0.9) translateY(4px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .emoji-btn-anim {
+            transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .emoji-btn-anim:hover {
+            transform: scale(1.28) translateY(-2px);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- YLÄPALKKI -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-3">
+            <!-- Vasen: Otsikko ja Nostr-tila -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl card-header-bg flex items-center justify-center text-white text-xl shadow">
+                    🍴
+                </div>
+                <div>
+                    <h1 class="text-lg sm:text-xl font-bold text-gray-900 leading-tight">Lounaslistat Pitäjänmäki</h1>
+                    <div class="flex items-center gap-2 text-xs text-gray-500">
+                        <span id="relay-status-dot" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                        <span id="relay-status-text">Yhdistetään Nostr-verkkoon...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Keskellä: Päivämäärän valinta -->
+            <div class="flex items-center gap-2 bg-gray-100 p-1.5 rounded-xl border border-gray-200">
+                <span class="text-xs font-medium text-gray-600 pl-2 hidden sm:inline">Päivä:</span>
+                <input type="date" id="menu-date-picker" class="bg-white border border-gray-300 rounded-lg px-2.5 py-1 text-xs sm:text-sm text-gray-800 focus:outline-none focus:border-teal-600">
+                <button id="menu-date-today-btn" class="text-xs bg-[#2c3e50] hover:bg-[#34495e] text-white px-3 py-1.5 rounded-lg font-medium transition">
+                    Tänään
+                </button>
+            </div>
+
+            <!-- Oikea: Käyttäjä & Debug -->
+            <div class="flex items-center gap-2">
+                <button id="toggle-profile-btn" class="text-xs sm:text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 px-3.5 py-2 rounded-xl border border-gray-300 transition flex items-center gap-2 font-medium">
+                    <span>👤</span>
+                    <span id="header-nickname">Nimimerkki</span>
+                </button>
+                <button id="toggle-debug-btn" class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-xl border border-gray-300 transition" title="Debug: Näytä raaka JSON">
+                    🐛
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- KÄYTTÄJÄPROFIILI / TILIN VAIHTO -PANEELI -->
+    <div id="profile-section" class="hidden bg-white border-b border-gray-200 shadow-md transition-all">
+        <div class="max-w-3xl mx-auto p-5">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                    <span>👤</span> Käyttäjä & Nimimerkki
+                </h2>
+                <button id="close-profile-btn" class="text-xs text-gray-500 hover:text-gray-800 font-medium px-2 py-1 rounded">✕ Sulje</button>
+            </div>
+
+            <!-- Tilin vaihto (Debug / Testaus) -->
+            <div class="mb-4 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                <label class="block text-xs font-semibold text-gray-500 mb-2">Vaihda testikäyttäjää (tai luo uusi)</label>
+                <div id="account-list" class="flex flex-wrap gap-2">
+                    <!-- Tilit renderöidään tähän -->
+                </div>
+            </div>
+
+            <!-- Vain Nimi -kenttä -->
+            <div class="flex flex-col sm:flex-row gap-3 items-end">
+                <div class="flex-1 w-full">
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Nimesi tai nimimerkkisi</label>
+                    <input type="text" id="profile-name" class="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2 text-sm text-gray-900 focus:border-[#2c3e50] focus:outline-none" placeholder="Esim. Matti">
+                </div>
+                <button id="save-profile-btn" class="w-full sm:w-auto bg-[#2c3e50] hover:bg-[#1abc9c] text-white px-5 py-2 rounded-xl text-sm font-semibold transition shadow-sm">
+                    Tallenna nimi
+                </button>
+            </div>
+            <div id="profile-toast" class="mt-2 text-xs text-emerald-600 font-medium hidden">✓ Nimimerkki tallennettu ja julkaistu Nostr-verkkoon!</div>
+        </div>
+    </div>
+
+    <!-- PÄÄSISÄLTÖ -->
+    <main class="max-w-7xl w-full mx-auto px-4 py-6 flex-1">
+        <!-- Päivän otsikko ja aikaleima -->
+        <div class="text-center mb-6">
+            <h2 id="main-date-heading" class="text-2xl font-bold text-gray-900 mb-1">🍴 Lounaslistat</h2>
+            <div id="subtitle-status" class="text-gray-500 text-xs sm:text-sm italic">
+                Voit tykätä ja kommentoida päivän lounaslistoja reaaliajassa
+            </div>
+        </div>
+
+        <!-- RAVINTOLAKORTIT (Grid kuten lounas.html:ssä) -->
+        <div id="restaurant-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 items-start">
+            <!-- Kortit renderöidään tähän -->
+        </div>
+    </main>
+
+    <!-- DEBUG MODAL -->
+    <div id="debug-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+        <div class="bg-white border border-gray-300 rounded-2xl w-full max-w-3xl max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+            <div class="flex justify-between items-center p-4 bg-[#2c3e50] text-white">
+                <h2 class="text-sm font-bold flex items-center gap-2">🐛 Debug: Nostr-tila & JSON</h2>
+                <button id="close-debug-btn" class="text-gray-200 hover:text-white px-2 text-xs font-semibold">✕ Sulje</button>
+            </div>
+            <div class="p-4 overflow-auto flex-1 text-xs font-mono text-gray-800 bg-gray-50">
+                <pre id="debug-json-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- ILMOITUSLAATIKKO (Toast) -->
+    <div id="toast-notification" class="fixed bottom-4 right-4 z-50 hidden bg-[#2c3e50] text-white text-xs font-medium px-4 py-3 rounded-xl shadow-lg border border-white/10 transition-all">
+        Ilmoitus
+    </div>
+
+    <script>
+        // --- VAKIOT & NOSTR-ASETUKSET ---
+        const MENU_APP_TAG = "lounaslaituri-menu-v1";
+        const COMMENT_APP_TAG = "lounaslaituri-comment-v1";
+        const LIKE_APP_TAG = "lounaslaituri-like-v1";
+        const REACTION_APP_TAG = "lounaslaituri-reaction-v1";
+        const LEGACY_APP_TAG = "lounaslaituri-v1";
+
+        // Teams-tyyliset lounasemojit
+        const TEAMS_EMOJIS = [
+            { emoji: "👍", label: "Peukku" },
+            { emoji: "❤️", label: "Huippu" },
+            { emoji: "😋", label: "Herkullista" },
+            { emoji: "🔥", label: "Liekeissä" },
+            { emoji: "🥗", label: "Kevyt & raikas" },
+            { emoji: "🤩", label: "Suosikki" },
+            { emoji: "🤔", label: "Mietityttää" },
+            { emoji: "👎", label: "Ei jatkoon" }
+        ];
+
+        const RELAYS = [
+            'wss://relay.primal.net',
+            'wss://nos.lol',
+            'wss://relay.nostr.band',
+            'wss://relay.snort.social'
+        ];
+
+        // --- SOVELLUKSEN TILA ---
+        let activeSockets = [];
+        let keys = { privKeyHex: null, pubKeyHex: null };
+        let userProfile = { name: "" }; // Käyttäjällä on vain nimi!
+        let accounts = [];
+        let activeAccountIndex = 0;
+
+        let menuEventsMap = new Map();      // key: "restaurant|date" -> Nostr Event
+        let commentEventsMap = new Map();   // key: "restaurant|date" tai "restaurant|" -> Array of Events
+        let reactionsMap = new Map();       // key: "restaurant|date" -> Map("pubkey|emoji" -> latest Kind 7 Event)
+        let profilesMap = new Map();        // key: pubkey -> { name }
+        let selectedMenuDate = null;
+        let openEmojiPickerSafeId = null;   // Mikä Teams-emojivalikko on auki
+        window._commentToggles = {};
+        window._expandedComments = {};
+
+        // --- ALUSTUS ---
+        window.onload = () => {
+            const todayStr = getTodayStr();
+            selectedMenuDate = todayStr;
+
+            const datePicker = document.getElementById('menu-date-picker');
+            datePicker.value = todayStr;
+
+            loadAccounts();
+            connectRelays();
+            renderRestaurantMenus();
+
+            // Kuuntelijat
+            document.getElementById('toggle-profile-btn').addEventListener('click', toggleProfile);
+            document.getElementById('close-profile-btn').addEventListener('click', toggleProfile);
+            document.getElementById('save-profile-btn').addEventListener('click', saveProfile);
+            document.getElementById('toggle-debug-btn').addEventListener('click', toggleDebug);
+            document.getElementById('close-debug-btn').addEventListener('click', toggleDebug);
+
+            datePicker.addEventListener('change', () => {
+                selectedMenuDate = datePicker.value || getTodayStr();
+                renderRestaurantMenus();
+            });
+
+            document.getElementById('menu-date-today-btn').addEventListener('click', () => {
+                const ts = getTodayStr();
+                datePicker.value = ts;
+                selectedMenuDate = ts;
+                renderRestaurantMenus();
+            });
+
+            // Suljetaan avoin emojivalikko klikattaessa muualle
+            document.addEventListener('click', (e) => {
+                if (openEmojiPickerSafeId && !e.target.closest('.emoji-picker-container')) {
+                    openEmojiPickerSafeId = null;
+                    renderRestaurantMenus();
+                }
+            });
+
+            setInterval(updateDebugJSON, 2000);
+        };
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast-notification');
+            toast.textContent = msg;
+            toast.classList.remove('hidden');
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        // --- KÄYTTÄJÄTILIEN HALLINTA (VAIN NIMI) ---
+        function randomUserNumber() {
+            return Math.floor(Math.random() * 900) + 100;
+        }
+
+        function generateKeypair() {
+            if (window.NostrTools && window.NostrTools.generatePrivateKey) {
+                const priv = window.NostrTools.generatePrivateKey();
+                const pub = window.NostrTools.getPublicKey(priv);
+                return { priv, pub };
+            }
+            const randHex = (len) => Array.from({length: len}, () => Math.floor(Math.random()*16).toString(16)).join('');
+            return { priv: randHex(64), pub: randHex(64) };
+        }
+
+        function loadAccounts() {
+            const saved = localStorage.getItem('ll_simple_accounts');
+            if (saved) {
+                try {
+                    accounts = JSON.parse(saved);
+                } catch (e) {
+                    accounts = [];
+                }
+            }
+            if (!accounts || accounts.length === 0) {
+                createNewAccount(false);
+            }
+
+            activeAccountIndex = parseInt(localStorage.getItem('ll_simple_active_index') || "0");
+            if (activeAccountIndex >= accounts.length) activeAccountIndex = 0;
+
+            applyActiveAccount();
+            renderAccountsUI();
+        }
+
+        function createNewAccount(switchNow = true) {
+            const kp = generateKeypair();
+            accounts.push({
+                privKeyHex: kp.priv,
+                pubKeyHex: kp.pub,
+                profile: { name: `Lounastaja ${randomUserNumber()}` }
+            });
+            saveAccounts();
+            if (switchNow) switchAccount(accounts.length - 1);
+        }
+
+        window.switchAccount = function(index) {
+            activeAccountIndex = index;
+            localStorage.setItem('ll_simple_active_index', activeAccountIndex);
+            applyActiveAccount();
+            renderAccountsUI();
+            renderRestaurantMenus();
+
+            activeSockets.forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) fetchMyProfile(ws);
+            });
+        };
+
+        function applyActiveAccount() {
+            const acc = accounts[activeAccountIndex];
+            keys.privKeyHex = acc.privKeyHex;
+            keys.pubKeyHex = acc.pubKeyHex;
+            userProfile = { name: (acc.profile && acc.profile.name) ? acc.profile.name : "" };
+
+            profilesMap.set(keys.pubKeyHex, { name: userProfile.name });
+            document.getElementById('profile-name').value = userProfile.name;
+            updateHeaderNickname();
+        }
+
+        function updateHeaderNickname() {
+            const el = document.getElementById('header-nickname');
+            el.textContent = userProfile.name || "Aseta nimi";
+        }
+
+        function saveAccounts() {
+            localStorage.setItem('ll_simple_accounts', JSON.stringify(accounts));
+        }
+
+        function renderAccountsUI() {
+            const container = document.getElementById('account-list');
+            container.innerHTML = accounts.map((acc, i) => {
+                const isActive = i === activeAccountIndex;
+                const name = (acc.profile && acc.profile.name) ? acc.profile.name : `Käyttäjä ${i + 1}`;
+                return `
+                    <button onclick="switchAccount(${i})" class="px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${isActive ? 'bg-[#2c3e50] text-white border-[#2c3e50] shadow-sm' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'}">
+                        ${isActive ? '✓ ' : ''}${escapeHtml(name)}
+                    </button>
+                `;
+            }).join('') + `
+                <button onclick="createNewAccount(true)" class="px-3 py-1.5 rounded-xl text-xs font-semibold border border-dashed border-gray-400 text-gray-600 hover:bg-gray-100 transition cursor-pointer">
+                    + Uusi käyttäjä
+                </button>
+            `;
+        }
+
+        function toggleProfile() {
+            const section = document.getElementById('profile-section');
+            section.classList.toggle('hidden');
+            document.getElementById('profile-toast').classList.add('hidden');
+        }
+
+        function saveProfile() {
+            const nameVal = document.getElementById('profile-name').value.trim();
+            if (!nameVal) {
+                showToast("Syötä vähintään nimi!");
+                return;
+            }
+            userProfile.name = nameVal;
+            accounts[activeAccountIndex].profile = { name: userProfile.name };
+            saveAccounts();
+            renderAccountsUI();
+            updateHeaderNickname();
+            profilesMap.set(keys.pubKeyHex, { name: userProfile.name });
+
+            // Julkaise Nostr Kind 0 metadata
+            const eventTemplate = {
+                kind: 0,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [],
+                content: JSON.stringify({ name: userProfile.name }),
+                pubkey: keys.pubKeyHex
+            };
+            publishEvent(eventTemplate);
+
+            const toast = document.getElementById('profile-toast');
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3000);
+            renderRestaurantMenus();
+        }
+
+        // --- NOSTR YHTEYDET ---
+        function updateConnectionStatus() {
+            const statusText = document.getElementById('relay-status-text');
+            const statusDot = document.getElementById('relay-status-dot');
+            const openCount = activeSockets.filter(ws => ws.readyState === WebSocket.OPEN).length;
+
+            if (openCount === 0) {
+                statusText.textContent = 'Yhteys katkennut (0 reieltä)';
+                statusDot.className = 'w-2 h-2 rounded-full bg-rose-500';
+            } else {
+                statusText.textContent = `Yhdistetty (${openCount}/${RELAYS.length} relettä)`;
+                statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            }
+        }
+
+        function connectRelays() {
+            RELAYS.forEach(url => {
+                try {
+                    const ws = new WebSocket(url);
+                    activeSockets.push(ws);
+
+                    ws.onopen = () => {
+                        updateConnectionStatus();
+                        subscribeToNostr(ws);
+                        fetchMyProfile(ws);
+                    };
+
+                    ws.onmessage = (event) => handleNostrMessage(event);
+                    ws.onerror = () => updateConnectionStatus();
+                    ws.onclose = () => updateConnectionStatus();
+                } catch (e) {
+                    console.warn("WebSocket ei sallittu tässä ympäristössä:", url);
+                    updateConnectionStatus();
+                }
+            });
+        }
+
+        function subscribeToNostr(ws) {
+            const subId = "lounas_" + Math.random().toString(36).substring(7);
+            const since = Math.floor(Date.now() / 1000) - (14 * 24 * 3600); // 14 vrk historia
+            const filters = [
+                { kinds: [1], '#t': [MENU_APP_TAG], limit: 300, since: since },
+                { kinds: [1], '#t': [COMMENT_APP_TAG], limit: 500, since: since },
+                { kinds: [7], '#t': [MENU_APP_TAG, REACTION_APP_TAG, LIKE_APP_TAG, LEGACY_APP_TAG], limit: 1000, since: since },
+                { kinds: [0], authors: Array.from(profilesMap.keys()), since: since }
+            ];
+            ws.send(JSON.stringify(["REQ", subId, ...filters]));
+        }
+
+        function fetchMyProfile(ws) {
+            const subId = "prof_" + Math.random().toString(36).substring(7);
+            ws.send(JSON.stringify(["REQ", subId, { kinds: [0], authors: [keys.pubKeyHex] }]));
+        }
+
+        function publishEvent(eventTemplate) {
+            let signed;
+            if (window.NostrTools && window.NostrTools.finishEvent) {
+                signed = window.NostrTools.finishEvent(eventTemplate, keys.privKeyHex);
+            } else {
+                eventTemplate.id = window.NostrTools.getEventHash(eventTemplate);
+                signed = { ...eventTemplate, sig: window.NostrTools.signEvent(eventTemplate.id, keys.privKeyHex) };
+            }
+
+            activeSockets.forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(["EVENT", signed]));
+                }
+            });
+
+            // Paikallinen käsittely heti
+            handleNostrMessage({ data: JSON.stringify(["EVENT", "local", signed]) });
+            return signed;
+        }
+
+        function handleNostrMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data[0] === "EVENT") {
+                    const ev = data[2];
+
+                    // 1. Ruokalistat (Kind 1)
+                    if (ev.kind === 1 && hasTag(ev, 't', MENU_APP_TAG)) {
+                        const restaurant = getTagValue(ev, 'restaurant');
+                        const date = getTagValue(ev, 'date');
+                        if (restaurant && date) {
+                            const key = restaurant + '|' + date;
+                            const existing = menuEventsMap.get(key);
+                            if (!existing || ev.created_at > existing.created_at) {
+                                menuEventsMap.set(key, ev);
+                                requestProfileIfNeeded(ev.pubkey);
+                                renderRestaurantMenus();
+                            }
+                        }
+                    }
+                    // 2. Kommentit (Kind 1)
+                    else if (ev.kind === 1 && hasTag(ev, 't', COMMENT_APP_TAG)) {
+                        const restaurant = getTagValue(ev, 'restaurant');
+                        const date = getTagValue(ev, 'date') || '';
+                        if (restaurant) {
+                            const key = restaurant + '|' + date;
+                            if (!commentEventsMap.has(key)) commentEventsMap.set(key, []);
+                            const arr = commentEventsMap.get(key);
+                            if (!arr.some(c => c.id === ev.id)) {
+                                arr.push(ev);
+                                arr.sort((a, b) => b.created_at - a.created_at);
+                                requestProfileIfNeeded(ev.pubkey);
+                                renderRestaurantMenus();
+                            }
+                        }
+                    }
+                    // 3. Emojireaktiot / Tykkäykset (Kind 7)
+                    else if (ev.kind === 7) {
+                        const restaurant = getTagValue(ev, 'restaurant');
+                        const date = getTagValue(ev, 'date');
+                        if (restaurant && date) {
+                            const key = restaurant + '|' + date;
+                            if (!reactionsMap.has(key)) reactionsMap.set(key, new Map());
+                            const map = reactionsMap.get(key);
+
+                            // Emojin tunniste: joko tagi 'emoji' tai content (esim '❤️', '+', '👍')
+                            let emoji = getTagValue(ev, 'emoji') || ev.content.trim();
+                            if (emoji === '+' || emoji === '') emoji = '❤️'; // Vanhat tykkäykset sydämeksi
+
+                            const userEmojiKey = ev.pubkey + '|' + emoji;
+                            const existing = map.get(userEmojiKey);
+                            if (!existing || ev.created_at > existing.created_at) {
+                                map.set(userEmojiKey, ev);
+                                requestProfileIfNeeded(ev.pubkey);
+                                renderRestaurantMenus();
+                            }
+                        }
+                    }
+                    // 4. Käyttäjäprofiilit (Kind 0)
+                    else if (ev.kind === 0) {
+                        try {
+                            const profile = JSON.parse(ev.content);
+                            if (profile && profile.name) {
+                                profilesMap.set(ev.pubkey, { name: profile.name });
+                                renderRestaurantMenus();
+                            }
+                        } catch (e) {}
+                    }
+                }
+            } catch (err) {
+                console.error("Nostr message parse error:", err);
+            }
+        }
+
+        function requestProfileIfNeeded(pubkey) {
+            if (!profilesMap.has(pubkey) && activeSockets.length > 0) {
+                profilesMap.set(pubkey, { name: pubkey.substring(0, 6) + "..." });
+                const req = JSON.stringify(["REQ", "p_" + pubkey.substring(0, 6), { kinds: [0], authors: [pubkey] }]);
+                activeSockets.forEach(ws => {
+                    if (ws.readyState === WebSocket.OPEN) ws.send(req);
+                });
+            }
+        }
+
+        // --- EMOJIREAKTIOT & KOMMENTIT ---
+        window.toggleEmojiReaction = function(restaurant, date, emoji, e) {
+            if (e) e.stopPropagation();
+            if (!userProfile.name) {
+                showToast("Aseta ensin nimimerkkisi oikeasta yläkulmasta (Oma profiili)!");
+                toggleProfile();
+                return;
+            }
+
+            const key = restaurant + '|' + date;
+            if (!reactionsMap.has(key)) reactionsMap.set(key, new Map());
+            const map = reactionsMap.get(key);
+            const userEmojiKey = keys.pubKeyHex + '|' + emoji;
+
+            const existing = map.get(userEmojiKey);
+            // Tarkistetaan onko käyttäjällä jo tämä reaktio aktiivisena (viimeisin ei ole '-')
+            const isActive = existing && existing.content !== '-';
+
+            const newContent = isActive ? '-' : emoji;
+
+            const eventTemplate = {
+                kind: 7,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: [
+                    ['t', MENU_APP_TAG],
+                    ['restaurant', restaurant],
+                    ['date', date],
+                    ['emoji', emoji]
+                ],
+                content: newContent,
+                pubkey: keys.pubKeyHex
+            };
+
+            publishEvent(eventTemplate);
+        };
+
+        window.toggleEmojiPicker = function(safeId, e) {
+            if (e) e.stopPropagation();
+            openEmojiPickerSafeId = (openEmojiPickerSafeId === safeId) ? null : safeId;
+            renderRestaurantMenus();
+        };
+
+        window.submitComment = function(restaurant, date) {
+            if (!userProfile.name) {
+                showToast("Aseta ensin nimimerkkisi oikeasta yläkulmasta (Oma profiili)!");
+                toggleProfile();
+                return;
+            }
+
+            const inputId = 'comment-input-' + safeIdStr(restaurant, date);
+            const toggleId = 'comment-toggle-' + safeIdStr(restaurant, date);
+            const input = document.getElementById(inputId);
+            const toggle = document.getElementById(toggleId);
+
+            if (!input || !input.value.trim()) return;
+
+            const isDateComment = toggle ? toggle.checked : true;
+            window._commentToggles[restaurant + '|' + date] = isDateComment;
+
+            const tags = [
+                ['t', COMMENT_APP_TAG],
+                ['restaurant', restaurant]
+            ];
+            if (isDateComment) {
+                tags.push(['date', date]);
+            }
+
+            const eventTemplate = {
+                kind: 1,
+                created_at: Math.floor(Date.now() / 1000),
+                tags: tags,
+                content: input.value.trim(),
+                pubkey: keys.pubKeyHex
+            };
+
+            publishEvent(eventTemplate);
+            input.value = '';
+        };
+
+        window.toggleExpandComments = function(restaurant, date) {
+            const key = restaurant + '|' + date;
+            window._expandedComments[key] = !window._expandedComments[key];
+            renderRestaurantMenus();
+        };
+
+        window.copyMenuToClipboard = function(elementId, restaurantName, btn) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            const text = restaurantName + "\n" + el.innerText;
+            const tempInput = document.createElement("textarea");
+            tempInput.value = text;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand("copy");
+            document.body.removeChild(tempInput);
+
+            const orig = btn.innerText;
+            btn.innerText = "Kopioitu!";
+            setTimeout(() => btn.innerText = orig, 2000);
+        };
+
+        function safeIdStr(restaurant, date) {
+            return restaurant.replace(/[^a-zA-Z0-9]/g, '_') + '_' + date;
+        }
+
+        function formatMenuItemHtml(itemText) {
+            if (!itemText) return '';
+            const isHeader = itemText.startsWith('**') || itemText.includes('So Veggie') || itemText.includes('So Hungry') || itemText.includes('So Sweet') || itemText.includes('[Lounas') || itemText.includes('[Kasvislounas') || itemText.includes('[Keitto');
+            if (isHeader) {
+                const clean = itemText.replace(/\*\*/g, '');
+                return `<li><span class="menu-category-title">${escapeHtml(clean)}</span></li>`;
+            }
+            return `<li class="mb-1.5 pb-1 border-b border-gray-100 flex items-start gap-1.5"><span class="text-teal-600 mt-0.5">•</span><span>${escapeHtml(itemText)}</span></li>`;
+        }
+
+        // --- RENDERÖINTI ---
+        function renderRestaurantMenus() {
+            const grid = document.getElementById('restaurant-grid');
+            const viewDate = selectedMenuDate || getTodayStr();
+
+            // Kerätään valitun päivän ruokalistat
+            const todayMenus = [];
+            menuEventsMap.forEach((ev, key) => {
+                const [restaurant, date] = key.split('|');
+                if (date === viewDate) {
+                    const items = [];
+                    ev.tags.forEach(t => {
+                        if (t[0] === 'item') items.push(t[1]);
+                    });
+                    const price = getTagValue(ev, 'price') || '';
+                    const hours = getTagValue(ev, 'hours') || '';
+                    const notes = getTagValue(ev, 'notes') || '';
+                    const source = getTagValue(ev, 'source') || '';
+                    todayMenus.push({ restaurant, items, price, hours, notes, source });
+                }
+            });
+
+            todayMenus.sort((a, b) => a.restaurant.localeCompare(b.restaurant, 'fi'));
+
+            const [y, m, d] = viewDate.split('-');
+            const dateFormatted = `${d}.${m}.${y}`;
+            document.getElementById('main-date-heading').textContent = `🍴 Lounaslistat Pitäjänmäki ${dateFormatted}`;
+
+            if (todayMenus.length === 0) {
+                grid.innerHTML = `
+                    <div class="col-span-full bg-white rounded-2xl p-10 text-center card-shadow border border-gray-200">
+                        <div class="text-4xl mb-3">🍲</div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-1">Ei ruokalistoja tälle päivälle (${dateFormatted})</h3>
+                        <p class="text-sm text-gray-500 mb-4">Ruokalistat päivittyvät Nostr-verkon kautta automaattisesti tai voit valita toisen päivän.</p>
+                        <button onclick="selectedMenuDate=getTodayStr(); document.getElementById('menu-date-picker').value=selectedMenuDate; renderRestaurantMenus();" class="bg-[#2c3e50] text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#1abc9c] transition">
+                            Siirry tähänpäivään
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            grid.innerHTML = todayMenus.map(menu => {
+                const safeId = safeIdStr(menu.restaurant, viewDate);
+                const menuDomId = 'menu_content_' + safeId;
+                const escapedRestJs = menu.restaurant.replace(/'/g, "\\'");
+
+                // Reaktiot tälle ravintolalle ja päivälle
+                const rKey = menu.restaurant + '|' + viewDate;
+                const rMap = reactionsMap.get(rKey) || new Map();
+
+                // Ryhmitellään emojit
+                const emojiGroupsMap = new Map(); // emoji -> { count, users: [{pubkey, name}], isReactedByMe }
+                rMap.forEach((ev, userEmojiKey) => {
+                    if (ev.content === '-') return; // Poistettu reaktio
+                    const emoji = getTagValue(ev, 'emoji') || ev.content;
+                    if (!emojiGroupsMap.has(emoji)) {
+                        emojiGroupsMap.set(emoji, { emoji, count: 0, users: [], isReactedByMe: false });
+                    }
+                    const group = emojiGroupsMap.get(emoji);
+                    group.count++;
+                    const authorName = (profilesMap.get(ev.pubkey) && profilesMap.get(ev.pubkey).name) || (ev.pubkey.substring(0, 6) + '...');
+                    group.users.push({ pubkey: ev.pubkey, name: authorName });
+                    if (ev.pubkey === keys.pubKeyHex) {
+                        group.isReactedByMe = true;
+                    }
+                });
+
+                const emojiGroups = Array.from(emojiGroupsMap.values()).filter(g => g.count > 0);
+
+                // Kommentit
+                const generalKey = menu.restaurant + '|';
+                const dateKey = menu.restaurant + '|' + viewDate;
+                const generalComments = commentEventsMap.get(generalKey) || [];
+                const dateComments = commentEventsMap.get(dateKey) || [];
+                const allComments = [...dateComments, ...generalComments].sort((a, b) => b.created_at - a.created_at);
+
+                const isExpanded = window._expandedComments[rKey];
+                const visibleComments = isExpanded ? allComments : allComments.slice(0, 3);
+                const toggleChecked = window._commentToggles[rKey] !== false;
+                const isPickerOpen = (openEmojiPickerSafeId === safeId);
+
+                return `
+                    <div class="card-container bg-white rounded-2xl card-shadow flex flex-col border border-gray-200/80">
+                        <!-- Kortin ylätunniste -->
+                        <div class="card-header-bg text-white p-4 relative flex items-center justify-between gap-2 rounded-t-2xl">
+                            <div class="pr-16">
+                                <h3 class="m-0 text-base font-bold leading-snug">${escapeHtml(menu.restaurant)}</h3>
+                                ${menu.price || menu.hours ? `
+                                    <div class="text-xs text-gray-300 mt-0.5 flex flex-wrap gap-2">
+                                        ${menu.price ? `<span class="text-amber-300 font-semibold">${escapeHtml(menu.price)} €</span>` : ''}
+                                        ${menu.hours ? `<span>🕐 ${escapeHtml(menu.hours)}</span>` : ''}
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <button class="copy-btn absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded text-xs font-medium cursor-pointer"
+                                    onclick="copyMenuToClipboard('${menuDomId}', '${escapedRestJs}', this)">
+                                Kopioi
+                            </button>
+                        </div>
+
+                        <!-- Ruokalistan sisältö -->
+                        <div class="p-4 flex-grow text-[13.5px] text-gray-700" id="${menuDomId}">
+                            ${menu.items.length > 0 ? `
+                                <ul class="list-none p-0 m-0">
+                                    ${menu.items.map(item => formatMenuItemHtml(item)).join('')}
+                                </ul>
+                            ` : `<p class="text-xs text-gray-400 italic">Ei ruokalajeja listattu tälle päivälle.</p>`}
+                        </div>
+
+                        <!-- Teams-tyylinen Emojireaktiopalkki ja Lähdelinkki -->
+                        <div class="px-3.5 py-2.5 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2 relative">
+                            <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                                ${emojiGroups.map(group => {
+                                    const userNames = group.users.map(u => u.name).join(', ');
+                                    return `
+                                        <div class="relative group/pill inline-flex">
+                                            <button onclick="toggleEmojiReaction('${escapedRestJs}', '${viewDate}', '${group.emoji}', event)"
+                                                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition cursor-pointer select-none ${group.isReactedByMe ? 'bg-indigo-50 border-indigo-400 text-indigo-800 shadow-2xs' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-100'}">
+                                                <span class="text-sm leading-none">${group.emoji}</span>
+                                                <span>${group.count}</span>
+                                            </button>
+                                            <div class="pointer-events-none opacity-0 group-hover/pill:opacity-100 transition-opacity duration-150 absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-40 bg-gray-900 text-white text-[11px] rounded-lg px-2.5 py-1.5 shadow-lg whitespace-nowrap">
+                                                <div class="font-bold flex items-center gap-1">
+                                                    <span>${group.emoji}</span>
+                                                    <span>${escapeHtml(userNames)}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+
+                                <!-- + Lisää reaktio (Teams-valikko) -->
+                                <div class="relative emoji-picker-container inline-flex">
+                                    <button onclick="toggleEmojiPicker('${safeId}', event)"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 bg-white hover:bg-gray-100 hover:border-gray-400 text-gray-600 transition cursor-pointer"
+                                            title="Lisää reaktio">
+                                        <span>😊</span>
+                                        <span class="text-[11px] font-bold">+</span>
+                                    </button>
+
+                                    ${isPickerOpen ? `
+                                        <div class="emoji-picker-popover absolute bottom-full mb-2 z-40 bg-white border border-gray-200 rounded-2xl shadow-xl px-2.5 py-1.5 flex items-center gap-1"
+                                             style="right: 0; min-width: 290px;">
+                                            ${TEAMS_EMOJIS.map(item => {
+                                                const activeGroup = emojiGroups.find(g => g.emoji === item.emoji);
+                                                const isMine = activeGroup && activeGroup.isReactedByMe;
+                                                return `
+                                                    <button onclick="toggleEmojiReaction('${escapedRestJs}', '${viewDate}', '${item.emoji}', event)"
+                                                            title="${escapeHtml(item.label)}"
+                                                            class="emoji-btn-anim w-8 h-8 flex items-center justify-center rounded-full text-lg cursor-pointer ${isMine ? 'bg-indigo-100 ring-2 ring-indigo-400' : 'hover:bg-gray-100'}">
+                                                        ${item.emoji}
+                                                    </button>
+                                                `;
+                                            }).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+
+                            ${menu.source ? `
+                                <a href="${escapeHtml(menu.source)}" target="_blank" rel="noopener" class="text-xs text-[#3498db] hover:underline font-bold whitespace-nowrap ml-auto">
+                                    Lähde &rarr;
+                                </a>
+                            ` : ''}
+                        </div>
+
+                        <!-- Kommenttiosio -->
+                        <div class="p-3.5 bg-gray-100/70 border-t border-gray-200 rounded-b-2xl">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs font-bold text-gray-600">💬 Kommentit (${allComments.length})</span>
+                            </div>
+
+                            ${visibleComments.length > 0 ? `
+                                <div class="space-y-1.5 mb-2.5 max-h-48 overflow-y-auto comments-scroll pr-1">
+                                    ${visibleComments.map(ev => {
+                                        const author = (profilesMap.get(ev.pubkey) && profilesMap.get(ev.pubkey).name)
+                                            ? profilesMap.get(ev.pubkey).name
+                                            : (ev.pubkey.substring(0, 6) + "...");
+                                        const timeAgo = getTimeAgo(ev.created_at);
+                                        const hasDateTag = !!getTagValue(ev, 'date');
+                                        return `
+                                            <div class="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 shadow-2xs">
+                                                <div class="flex justify-between items-center text-[11px] mb-0.5">
+                                                    <span class="font-bold text-gray-800">👤 ${escapeHtml(author)}</span>
+                                                    <div class="flex items-center gap-1.5 text-gray-400">
+                                                        <span title="${hasDateTag ? 'Päivän lista' : 'Yleinen kommentti'}">${hasDateTag ? '📅' : '🏷️'}</span>
+                                                        <span>${timeAgo}</span>
+                                                    </div>
+                                                </div>
+                                                <p class="text-xs text-gray-700 break-words m-0">${escapeHtml(ev.content)}</p>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            ` : `
+                                <p class="text-[11px] text-gray-400 italic mb-2">Ei vielä kommentteja. Kerro mitä pidit lounaasta!</p>
+                            `}
+
+                            ${allComments.length > 3 ? `
+                                <button onclick="toggleExpandComments('${escapedRestJs}', '${viewDate}')" class="text-xs text-[#3498db] hover:underline font-medium mb-2 block cursor-pointer">
+                                    ${isExpanded ? 'Näytä vähemmän' : `Näytä kaikki ${allComments.length} kommenttia...`}
+                                </button>
+                            ` : ''}
+
+                            <!-- Uusi kommentti -->
+                            <div class="flex gap-1.5">
+                                <input type="text"
+                                       id="comment-input-${safeId}"
+                                       onkeydown="if(event.key==='Enter') submitComment('${escapedRestJs}', '${viewDate}')"
+                                       class="flex-1 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 focus:outline-none focus:border-[#2c3e50]"
+                                       placeholder="Kirjoita kommentti...">
+                                <button onclick="submitComment('${escapedRestJs}', '${viewDate}')"
+                                        class="bg-[#2c3e50] hover:bg-[#1abc9c] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer">
+                                    Lähetä
+                                </button>
+                            </div>
+                            <label class="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1.5 cursor-pointer select-none">
+                                <input type="checkbox" id="comment-toggle-${safeId}" ${toggleChecked ? 'checked' : ''} class="accent-[#2c3e50] w-3 h-3">
+                                Kohdista tälle päivälle (${dateFormatted})
+                            </label>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // --- APUFUNKTIOT ---
+        function getTodayStr() {
+            const now = new Date();
+            const helsinki = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Helsinki' }));
+            return helsinki.getFullYear() + '-' +
+                   String(helsinki.getMonth() + 1).padStart(2, '0') + '-' +
+                   String(helsinki.getDate()).padStart(2, '0');
+        }
+
+        function getTimeAgo(unixTimestamp) {
+            const now = Math.floor(Date.now() / 1000);
+            const diff = now - unixTimestamp;
+            if (diff < 60) return 'juuri nyt';
+            if (diff < 3600) return Math.floor(diff / 60) + ' min sitten';
+            if (diff < 86400) return Math.floor(diff / 3600) + ' h sitten';
+            return Math.floor(diff / 86400) + ' pv sitten';
+        }
+
+        function getTagValue(event, tagKey) {
+            if (!event || !event.tags) return null;
+            const tag = event.tags.find(t => t[0] === tagKey);
+            return tag ? tag[1] : null;
+        }
+
+        function hasTag(event, tagKey, tagValue) {
+            if (!event || !event.tags) return false;
+            return event.tags.some(t => t[0] === tagKey && t[1] === tagValue);
+        }
+
+        function escapeHtml(str) {
+            if (!str) return "";
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        }
+
+        // --- DEBUG ---
+        function toggleDebug() {
+            const modal = document.getElementById('debug-modal');
+            modal.classList.toggle('hidden');
+            if (!modal.classList.contains('hidden')) updateDebugJSON();
+        }
+
+        function updateDebugJSON() {
+            const modal = document.getElementById('debug-modal');
+            if (modal.classList.contains('hidden')) return;
+
+            const debugData = {
+                activeUser: {
+                    pubkey: keys.pubKeyHex,
+                    name: userProfile.name
+                },
+                selectedMenuDate: selectedMenuDate,
+                nostrMenusReceived: Array.from(menuEventsMap.keys()),
+                reactionsSummary: Array.from(reactionsMap.entries()).map(([k, map]) => ({
+                    target: k,
+                    activeReactions: Array.from(map.values())
+                        .filter(e => e.content !== '-')
+                        .map(e => ({
+                            user: (profilesMap.get(e.pubkey) && profilesMap.get(e.pubkey).name) || e.pubkey.substring(0, 6),
+                            emoji: getTagValue(e, 'emoji') || e.content
+                        }))
+                })),
+                commentsSummary: Array.from(commentEventsMap.entries()).map(([k, arr]) => ({
+                    target: k,
+                    count: arr.length
+                })),
+                knownProfiles: Array.from(profilesMap.entries())
+            };
+            document.getElementById('debug-json-content').textContent = JSON.stringify(debugData, null, 2);
+        }
+    </script>
+</body>
+</html>
