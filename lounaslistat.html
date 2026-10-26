@@ -70,9 +70,9 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
-    <!-- YLÄPALKKI -->
-    <header class="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
-        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap justify-between items-center gap-3">
+    <!-- YLÄPALKKI (Laidasta laitaan) -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm w-full">
+        <div class="w-full px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap justify-between items-center gap-3">
             <!-- Vasen: Otsikko ja Nostr-tila -->
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl card-header-bg flex items-center justify-center text-white text-xl shadow">
@@ -110,8 +110,8 @@
     </header>
 
     <!-- KÄYTTÄJÄPROFIILI / TILIN VAIHTO -PANEELI -->
-    <div id="profile-section" class="hidden bg-white border-b border-gray-200 shadow-md transition-all">
-        <div class="max-w-3xl mx-auto p-5">
+    <div id="profile-section" class="hidden bg-white border-b border-gray-200 shadow-md transition-all w-full">
+        <div class="w-full max-w-4xl mx-auto p-5">
             <div class="flex justify-between items-center mb-3">
                 <h2 class="text-base font-bold text-gray-800 flex items-center gap-2">
                     <span>👤</span> Käyttäjä & Nimimerkki
@@ -141,8 +141,8 @@
         </div>
     </div>
 
-    <!-- PÄÄSISÄLTÖ -->
-    <main class="max-w-7xl w-full mx-auto px-4 py-6 flex-1">
+    <!-- PÄÄSISÄLTÖ (Leveä layout laidasta laitaan) -->
+    <main class="w-full px-4 sm:px-6 lg:px-8 py-6 flex-1">
         <!-- Päivän otsikko ja aikaleima -->
         <div class="text-center mb-6">
             <h2 id="main-date-heading" class="text-2xl font-bold text-gray-900 mb-1">🍴 Lounaslistat</h2>
@@ -151,8 +151,8 @@
             </div>
         </div>
 
-        <!-- RAVINTOLAKORTIT (Grid kuten lounas.html:ssä) -->
-        <div id="restaurant-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 items-start">
+        <!-- RAVINTOLAKORTIT (Leveä responsiivinen grid: 1 -> 2 -> 3 -> 4 saraketta) -->
+        <div id="restaurant-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6 items-start">
             <!-- Kortit renderöidään tähän -->
         </div>
     </main>
@@ -205,16 +205,16 @@
         // --- SOVELLUKSEN TILA ---
         let activeSockets = [];
         let keys = { privKeyHex: null, pubKeyHex: null };
-        let userProfile = { name: "" }; // Käyttäjällä on vain nimi!
+        let userProfile = { name: "" };
         let accounts = [];
         let activeAccountIndex = 0;
 
-        let menuEventsMap = new Map();      // key: "restaurant|date" -> Nostr Event
-        let commentEventsMap = new Map();   // key: "restaurant|date" tai "restaurant|" -> Array of Events
-        let reactionsMap = new Map();       // key: "restaurant|date" -> Map("pubkey|emoji" -> latest Kind 7 Event)
-        let profilesMap = new Map();        // key: pubkey -> { name }
+        let menuEventsMap = new Map();
+        let commentEventsMap = new Map();
+        let reactionsMap = new Map();
+        let profilesMap = new Map();
         let selectedMenuDate = null;
-        let openEmojiPickerSafeId = null;   // Mikä Teams-emojivalikko on auki
+        let openEmojiPickerSafeId = null;
         window._commentToggles = {};
         window._expandedComments = {};
 
@@ -230,7 +230,6 @@
             connectRelays();
             renderRestaurantMenus();
 
-            // Kuuntelijat
             document.getElementById('toggle-profile-btn').addEventListener('click', toggleProfile);
             document.getElementById('close-profile-btn').addEventListener('click', toggleProfile);
             document.getElementById('save-profile-btn').addEventListener('click', saveProfile);
@@ -249,7 +248,6 @@
                 renderRestaurantMenus();
             });
 
-            // Suljetaan avoin emojivalikko klikattaessa muualle
             document.addEventListener('click', (e) => {
                 if (openEmojiPickerSafeId && !e.target.closest('.emoji-picker-container')) {
                     openEmojiPickerSafeId = null;
@@ -270,7 +268,6 @@
             }, 3000);
         }
 
-        // --- KÄYTTÄJÄTILIEN HALLINTA (VAIN NIMI) ---
         function randomUserNumber() {
             return Math.floor(Math.random() * 900) + 100;
         }
@@ -288,11 +285,7 @@
         function loadAccounts() {
             const saved = localStorage.getItem('ll_simple_accounts');
             if (saved) {
-                try {
-                    accounts = JSON.parse(saved);
-                } catch (e) {
-                    accounts = [];
-                }
+                try { accounts = JSON.parse(saved); } catch (e) { accounts = []; }
             }
             if (!accounts || accounts.length === 0) {
                 createNewAccount(false);
@@ -384,7 +377,6 @@
             updateHeaderNickname();
             profilesMap.set(keys.pubKeyHex, { name: userProfile.name });
 
-            // Julkaise Nostr Kind 0 metadata
             const eventTemplate = {
                 kind: 0,
                 created_at: Math.floor(Date.now() / 1000),
@@ -400,7 +392,6 @@
             renderRestaurantMenus();
         }
 
-        // --- NOSTR YHTEYDET ---
         function updateConnectionStatus() {
             const statusText = document.getElementById('relay-status-text');
             const statusDot = document.getElementById('relay-status-dot');
@@ -431,7 +422,7 @@
                     ws.onerror = () => updateConnectionStatus();
                     ws.onclose = () => updateConnectionStatus();
                 } catch (e) {
-                    console.warn("WebSocket ei sallittu tässä ympäristössä:", url);
+                    console.warn("WebSocket ei sallittu:", url);
                     updateConnectionStatus();
                 }
             });
@@ -439,7 +430,7 @@
 
         function subscribeToNostr(ws) {
             const subId = "lounas_" + Math.random().toString(36).substring(7);
-            const since = Math.floor(Date.now() / 1000) - (14 * 24 * 3600); // 14 vrk historia
+            const since = Math.floor(Date.now() / 1000) - (14 * 24 * 3600);
             const filters = [
                 { kinds: [1], '#t': [MENU_APP_TAG], limit: 300, since: since },
                 { kinds: [1], '#t': [COMMENT_APP_TAG], limit: 500, since: since },
@@ -469,7 +460,6 @@
                 }
             });
 
-            // Paikallinen käsittely heti
             handleNostrMessage({ data: JSON.stringify(["EVENT", "local", signed]) });
             return signed;
         }
@@ -480,7 +470,6 @@
                 if (data[0] === "EVENT") {
                     const ev = data[2];
 
-                    // 1. Ruokalistat (Kind 1)
                     if (ev.kind === 1 && hasTag(ev, 't', MENU_APP_TAG)) {
                         const restaurant = getTagValue(ev, 'restaurant');
                         const date = getTagValue(ev, 'date');
@@ -493,9 +482,7 @@
                                 renderRestaurantMenus();
                             }
                         }
-                    }
-                    // 2. Kommentit (Kind 1)
-                    else if (ev.kind === 1 && hasTag(ev, 't', COMMENT_APP_TAG)) {
+                    } else if (ev.kind === 1 && hasTag(ev, 't', COMMENT_APP_TAG)) {
                         const restaurant = getTagValue(ev, 'restaurant');
                         const date = getTagValue(ev, 'date') || '';
                         if (restaurant) {
@@ -509,9 +496,7 @@
                                 renderRestaurantMenus();
                             }
                         }
-                    }
-                    // 3. Emojireaktiot / Tykkäykset (Kind 7)
-                    else if (ev.kind === 7) {
+                    } else if (ev.kind === 7) {
                         const restaurant = getTagValue(ev, 'restaurant');
                         const date = getTagValue(ev, 'date');
                         if (restaurant && date) {
@@ -519,9 +504,8 @@
                             if (!reactionsMap.has(key)) reactionsMap.set(key, new Map());
                             const map = reactionsMap.get(key);
 
-                            // Emojin tunniste: joko tagi 'emoji' tai content (esim '❤️', '+', '👍')
                             let emoji = getTagValue(ev, 'emoji') || ev.content.trim();
-                            if (emoji === '+' || emoji === '') emoji = '❤️'; // Vanhat tykkäykset sydämeksi
+                            if (emoji === '+' || emoji === '') emoji = '❤️';
 
                             const userEmojiKey = ev.pubkey + '|' + emoji;
                             const existing = map.get(userEmojiKey);
@@ -531,9 +515,7 @@
                                 renderRestaurantMenus();
                             }
                         }
-                    }
-                    // 4. Käyttäjäprofiilit (Kind 0)
-                    else if (ev.kind === 0) {
+                    } else if (ev.kind === 0) {
                         try {
                             const profile = JSON.parse(ev.content);
                             if (profile && profile.name) {
@@ -544,7 +526,7 @@
                     }
                 }
             } catch (err) {
-                console.error("Nostr message parse error:", err);
+                console.error("Nostr parse error:", err);
             }
         }
 
@@ -558,7 +540,6 @@
             }
         }
 
-        // --- EMOJIREAKTIOT & KOMMENTIT ---
         window.toggleEmojiReaction = function(restaurant, date, emoji, e) {
             if (e) e.stopPropagation();
             if (!userProfile.name) {
@@ -573,9 +554,7 @@
             const userEmojiKey = keys.pubKeyHex + '|' + emoji;
 
             const existing = map.get(userEmojiKey);
-            // Tarkistetaan onko käyttäjällä jo tämä reaktio aktiivisena (viimeisin ei ole '-')
             const isActive = existing && existing.content !== '-';
-
             const newContent = isActive ? '-' : emoji;
 
             const eventTemplate = {
@@ -673,12 +652,10 @@
             return `<li class="mb-1.5 pb-1 border-b border-gray-100 flex items-start gap-1.5"><span class="text-teal-600 mt-0.5">•</span><span>${escapeHtml(itemText)}</span></li>`;
         }
 
-        // --- RENDERÖINTI ---
         function renderRestaurantMenus() {
             const grid = document.getElementById('restaurant-grid');
             const viewDate = selectedMenuDate || getTodayStr();
 
-            // Kerätään valitun päivän ruokalistat
             const todayMenus = [];
             menuEventsMap.forEach((ev, key) => {
                 const [restaurant, date] = key.split('|');
@@ -703,8 +680,8 @@
 
             if (todayMenus.length === 0) {
                 grid.innerHTML = `
-                    <div class="col-span-full bg-white rounded-2xl p-10 text-center card-shadow border border-gray-200">
-                        <div class="text-4xl mb-3">🍲</div>
+                    <div class="col-span-full bg-white rounded-2xl p-12 text-center card-shadow border border-gray-200">
+                        <div class="text-5xl mb-3">🍲</div>
                         <h3 class="text-lg font-bold text-gray-800 mb-1">Ei ruokalistoja tälle päivälle (${dateFormatted})</h3>
                         <p class="text-sm text-gray-500 mb-4">Ruokalistat päivittyvät Nostr-verkon kautta automaattisesti tai voit valita toisen päivän.</p>
                         <button onclick="selectedMenuDate=getTodayStr(); document.getElementById('menu-date-picker').value=selectedMenuDate; renderRestaurantMenus();" class="bg-[#2c3e50] text-white px-4 py-2 rounded-xl text-xs font-semibold hover:bg-[#1abc9c] transition">
@@ -720,14 +697,12 @@
                 const menuDomId = 'menu_content_' + safeId;
                 const escapedRestJs = menu.restaurant.replace(/'/g, "\\'");
 
-                // Reaktiot tälle ravintolalle ja päivälle
                 const rKey = menu.restaurant + '|' + viewDate;
                 const rMap = reactionsMap.get(rKey) || new Map();
 
-                // Ryhmitellään emojit
-                const emojiGroupsMap = new Map(); // emoji -> { count, users: [{pubkey, name}], isReactedByMe }
+                const emojiGroupsMap = new Map();
                 rMap.forEach((ev, userEmojiKey) => {
-                    if (ev.content === '-') return; // Poistettu reaktio
+                    if (ev.content === '-') return;
                     const emoji = getTagValue(ev, 'emoji') || ev.content;
                     if (!emojiGroupsMap.has(emoji)) {
                         emojiGroupsMap.set(emoji, { emoji, count: 0, users: [], isReactedByMe: false });
@@ -743,7 +718,6 @@
 
                 const emojiGroups = Array.from(emojiGroupsMap.values()).filter(g => g.count > 0);
 
-                // Kommentit
                 const generalKey = menu.restaurant + '|';
                 const dateKey = menu.restaurant + '|' + viewDate;
                 const generalComments = commentEventsMap.get(generalKey) || [];
@@ -756,8 +730,8 @@
                 const isPickerOpen = (openEmojiPickerSafeId === safeId);
 
                 return `
-                    <div class="card-container bg-white rounded-2xl card-shadow flex flex-col border border-gray-200/80">
-                        <!-- Kortin ylätunniste -->
+                    <div class="card-container bg-white rounded-2xl card-shadow flex flex-col border border-gray-200/80 w-full">
+                        <!-- Ylätunniste -->
                         <div class="card-header-bg text-white p-4 relative flex items-center justify-between gap-2 rounded-t-2xl">
                             <div class="pr-16">
                                 <h3 class="m-0 text-base font-bold leading-snug">${escapeHtml(menu.restaurant)}</h3>
@@ -774,7 +748,7 @@
                             </button>
                         </div>
 
-                        <!-- Ruokalistan sisältö -->
+                        <!-- Sisältö -->
                         <div class="p-4 flex-grow text-[13.5px] text-gray-700" id="${menuDomId}">
                             ${menu.items.length > 0 ? `
                                 <ul class="list-none p-0 m-0">
@@ -783,7 +757,7 @@
                             ` : `<p class="text-xs text-gray-400 italic">Ei ruokalajeja listattu tälle päivälle.</p>`}
                         </div>
 
-                        <!-- Teams-tyylinen Emojireaktiopalkki ja Lähdelinkki -->
+                        <!-- Emojireaktiot & Lähde -->
                         <div class="px-3.5 py-2.5 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2 relative">
                             <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                                 ${emojiGroups.map(group => {
@@ -805,7 +779,6 @@
                                     `;
                                 }).join('')}
 
-                                <!-- + Lisää reaktio (Teams-valikko) -->
                                 <div class="relative emoji-picker-container inline-flex">
                                     <button onclick="toggleEmojiPicker('${safeId}', event)"
                                             class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 bg-white hover:bg-gray-100 hover:border-gray-400 text-gray-600 transition cursor-pointer"
@@ -878,7 +851,6 @@
                                 </button>
                             ` : ''}
 
-                            <!-- Uusi kommentti -->
                             <div class="flex gap-1.5">
                                 <input type="text"
                                        id="comment-input-${safeId}"
@@ -900,7 +872,6 @@
             }).join('');
         }
 
-        // --- APUFUNKTIOT ---
         function getTodayStr() {
             const now = new Date();
             const helsinki = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Helsinki' }));
@@ -938,7 +909,6 @@
                 .replace(/"/g, "&quot;");
         }
 
-        // --- DEBUG ---
         function toggleDebug() {
             const modal = document.getElementById('debug-modal');
             modal.classList.toggle('hidden');
@@ -950,25 +920,17 @@
             if (modal.classList.contains('hidden')) return;
 
             const debugData = {
-                activeUser: {
-                    pubkey: keys.pubKeyHex,
-                    name: userProfile.name
-                },
+                activeUser: { pubkey: keys.pubKeyHex, name: userProfile.name },
                 selectedMenuDate: selectedMenuDate,
                 nostrMenusReceived: Array.from(menuEventsMap.keys()),
                 reactionsSummary: Array.from(reactionsMap.entries()).map(([k, map]) => ({
                     target: k,
-                    activeReactions: Array.from(map.values())
-                        .filter(e => e.content !== '-')
-                        .map(e => ({
-                            user: (profilesMap.get(e.pubkey) && profilesMap.get(e.pubkey).name) || e.pubkey.substring(0, 6),
-                            emoji: getTagValue(e, 'emoji') || e.content
-                        }))
+                    activeReactions: Array.from(map.values()).filter(e => e.content !== '-').map(e => ({
+                        user: (profilesMap.get(e.pubkey) && profilesMap.get(e.pubkey).name) || e.pubkey.substring(0, 6),
+                        emoji: getTagValue(e, 'emoji') || e.content
+                    }))
                 })),
-                commentsSummary: Array.from(commentEventsMap.entries()).map(([k, arr]) => ({
-                    target: k,
-                    count: arr.length
-                })),
+                commentsSummary: Array.from(commentEventsMap.entries()).map(([k, arr]) => ({ target: k, count: arr.length })),
                 knownProfiles: Array.from(profilesMap.entries())
             };
             document.getElementById('debug-json-content').textContent = JSON.stringify(debugData, null, 2);
