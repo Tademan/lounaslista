@@ -577,6 +577,34 @@
             if (e) e.stopPropagation();
             openEmojiPickerSafeId = (openEmojiPickerSafeId === safeId) ? null : safeId;
             renderRestaurantMenus();
+
+            if (openEmojiPickerSafeId) {
+                const picker = document.getElementById('emoji-picker-' + safeId);
+                if (picker) {
+                    // Reset position: open towards the right by default
+                    picker.style.left = '0px';
+                    picker.style.right = 'auto';
+
+                    requestAnimationFrame(() => {
+                        let rect = picker.getBoundingClientRect();
+                        
+                        // If it overflows the right edge, align it to the right
+                        if (rect.right > window.innerWidth) {
+                            picker.style.left = 'auto';
+                            picker.style.right = '0px';
+                        }
+                        
+                        // Check again: if it overflows the left edge, push it right to stay in view
+                        rect = picker.getBoundingClientRect();
+                        if (rect.left < 0) {
+                            // Calculate how far to push it right based on its current computed left
+                            const currentLeft = parseInt(window.getComputedStyle(picker).left) || 0;
+                            picker.style.left = (currentLeft + Math.abs(rect.left) + 10) + 'px';
+                            picker.style.right = 'auto';
+                        }
+                    });
+                }
+            }
         };
 
         window.submitComment = function(restaurant, date) {
@@ -788,8 +816,8 @@
                                     </button>
 
                                     ${isPickerOpen ? `
-                                        <div class="emoji-picker-popover absolute bottom-full mb-2 z-40 bg-white border border-gray-200 rounded-2xl shadow-xl px-2.5 py-1.5 flex items-center gap-1"
-                                             style="right: 0; min-width: 290px;">
+                                        <div id="emoji-picker-${safeId}" class="emoji-picker-popover absolute bottom-full mb-2 z-50 bg-white border border-gray-200 rounded-2xl shadow-xl px-2.5 py-1.5 flex items-center gap-1"
+                                             style="left: 0; right: auto; min-width: 290px; width: max-content;">
                                             ${TEAMS_EMOJIS.map(item => {
                                                 const activeGroup = emojiGroups.find(g => g.emoji === item.emoji);
                                                 const isMine = activeGroup && activeGroup.isReactedByMe;
