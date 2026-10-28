@@ -215,6 +215,7 @@
         let profilesMap = new Map();
         let selectedMenuDate = null;
         let openEmojiPickerSafeId = null;
+        let customRestaurantOrder = [];
         window._commentToggles = {};
         window._expandedComments = {};
 
@@ -226,6 +227,7 @@
             const datePicker = document.getElementById('menu-date-picker');
             datePicker.value = todayStr;
 
+            loadRestaurantOrder();
             loadAccounts();
             connectRelays();
             renderRestaurantMenus();
@@ -257,6 +259,17 @@
 
             setInterval(updateDebugJSON, 2000);
         };
+
+        function loadRestaurantOrder() {
+            try {
+                const savedOrder = localStorage.getItem('ll_restaurant_order');
+                if (savedOrder) customRestaurantOrder = JSON.parse(savedOrder);
+            } catch(e) {}
+        }
+
+        function saveRestaurantOrder() {
+            localStorage.setItem('ll_restaurant_order', JSON.stringify(customRestaurantOrder));
+        }
 
         function showToast(msg) {
             const toast = document.getElementById('toast-notification');
@@ -407,25 +420,39 @@
         }
 
         function connectRelays() {
-            RELAYS.forEach(url => {
-                try {
-                    const ws = new WebSocket(url);
-                    activeSockets.push(ws);
+            RELAYS.forEach(url => connectToRelay(url, 0));
+        }
 
-                    ws.onopen = () => {
-                        updateConnectionStatus();
-                        subscribeToNostr(ws);
-                        fetchMyProfile(ws);
-                    };
+        function connectToRelay(url, attempt) {
+            try {
+                const ws = new WebSocket(url);
+                activeSockets.push(ws);
 
-                    ws.onmessage = (event) => handleNostrMessage(event);
-                    ws.onerror = () => updateConnectionStatus();
-                    ws.onclose = () => updateConnectionStatus();
-                } catch (e) {
-                    console.warn("WebSocket ei sallittu:", url);
+                ws.onopen = () => {
                     updateConnectionStatus();
+                    subscribeToNostr(ws);
+                    fetchMyProfile(ws);
+                };
+
+                ws.onmessage = (event) => handleNostrMessage(event);
+                ws.onerror = () => updateConnectionStatus();
+                ws.onclose = () => {
+                    // Poista katkennut yhteys aktiivisista
+                    activeSockets = activeSockets.filter(s => s !== ws);
+                    updateConnectionStatus();
+                    
+                    // Yritä yhdistää uudelleen 5 sekunnin kuluttua
+                    setTimeout(() => connectToRelay(url, attempt + 1), 5000);
+                };
+            } catch (e) {
+                console.warn("WebSocket ei sallittu:", url);
+                updateConnectionStatus();
+                
+                // Jos selain estää (esim. CSP), yritä harvemmin (max 5 kertaa)
+                if (attempt < 5) {
+                    setTimeout(() => connectToRelay(url, attempt + 1), 10000);
                 }
-            });
+            }
         }
 
         function subscribeToNostr(ws) {
@@ -666,6 +693,48 @@
             setTimeout(() => btn.innerText = orig, 2000);
         };
 
+        window.moveRestaurant = function(restaurantName, direction, e) {
+            if (e) e.stopPropagation();
+            
+            const viewDate = selectedMenuDate || getTodayStr();
+            const currentRestNames = [];
+            
+            // Get all current visible restaurants for the selected date
+            menuEventsMap.forEach((ev, key) => {
+                const [r, d] = key.split('|');
+                if (d === viewDate && !currentRestNames.includes(r)) {
+                    currentRestNames.push(r);
+                }
+            });
+            
+            // Sort them identically to how they are currently rendered
+            currentRestNames.sort((a, b) => {
+                const idxA = customRestaurantOrder.indexOf(a);
+                const idxB = customRestaurantOrder.indexOf(b);
+                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                if (idxA !== -1) return -1;
+                if (idxB !== -1) return 1;
+                return a.localeCompare(b, 'fi');
+            });
+
+            const currentIndex = currentRestNames.indexOf(restaurantName);
+            if (currentIndex === -1) return;
+            
+            const newIndex = currentIndex + direction;
+            if (newIndex < 0 || newIndex >= currentRestNames.length) return;
+            
+            // Swap
+            const temp = currentRestNames[currentIndex];
+            currentRestNames[currentIndex] = currentRestNames[newIndex];
+            currentRestNames[newIndex] = temp;
+            
+            // Save the new complete order
+            customRestaurantOrder = currentRestNames;
+            saveRestaurantOrder();
+            
+            renderRestaurantMenus();
+        };
+
         function safeIdStr(restaurant, date) {
             return restaurant.replace(/[^a-zA-Z0-9]/g, '_') + '_' + date;
         }
@@ -700,7 +769,15 @@
                 }
             });
 
-            todayMenus.sort((a, b) => a.restaurant.localeCompare(b.restaurant, 'fi'));
+            // Sort menus based on custom order, fallback to alphabetical
+            todayMenus.sort((a, b) => {
+                const idxA = customRestaurantOrder.indexOf(a.restaurant);
+                const idxB = customRestaurantOrder.indexOf(b.restaurant);
+                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                if (idxA !== -1) return -1;
+                if (idxB !== -1) return 1;
+                return a.restaurant.localeCompare(b.restaurant, 'fi');
+            });
 
             const [y, m, d] = viewDate.split('-');
             const dateFormatted = `${d}.${m}.${y}`;
@@ -761,7 +838,7 @@
                     <div class="card-container bg-white rounded-2xl card-shadow flex flex-col border border-gray-200/80 w-full">
                         <!-- Ylätunniste -->
                         <div class="card-header-bg text-white p-4 relative flex items-center justify-between gap-2 rounded-t-2xl">
-                            <div class="pr-16">
+                            <div class="pr-[110px]">
                                 <h3 class="m-0 text-base font-bold leading-snug">${escapeHtml(menu.restaurant)}</h3>
                                 ${menu.price || menu.hours ? `
                                     <div class="text-xs text-gray-300 mt-0.5 flex flex-wrap gap-2">
@@ -770,10 +847,14 @@
                                     </div>
                                 ` : ''}
                             </div>
-                            <button class="copy-btn absolute right-3 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded text-xs font-medium cursor-pointer"
-                                    onclick="copyMenuToClipboard('${menuDomId}', '${escapedRestJs}', this)">
-                                Kopioi
-                            </button>
+                            <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                                <button class="bg-[#34495e] hover:bg-[#1abc9c] text-white border border-white/20 px-2 py-1 rounded text-xs font-medium transition cursor-pointer" onclick="moveRestaurant('${escapedRestJs}', -1, event)" title="Siirrä vasemmalle/ylös">&larr;</button>
+                                <button class="bg-[#34495e] hover:bg-[#1abc9c] text-white border border-white/20 px-2 py-1 rounded text-xs font-medium transition cursor-pointer" onclick="moveRestaurant('${escapedRestJs}', 1, event)" title="Siirrä oikealle/alas">&rarr;</button>
+                                <button class="copy-btn px-2.5 py-1 rounded text-xs font-medium cursor-pointer"
+                                        onclick="copyMenuToClipboard('${menuDomId}', '${escapedRestJs}', this)">
+                                    Kopioi
+                                </button>
+                            </div>
                         </div>
 
                         <!-- Sisältö -->
