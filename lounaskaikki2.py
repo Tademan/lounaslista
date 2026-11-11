@@ -332,12 +332,12 @@ def julkaise_nostriin(data_lista, pvm_str):
         print(f"Aseta skriptiin kiinteä avain, jotta listojen päivitykset korvautuvat oikein verkossa.")
 
     relay_manager = RelayManager()
-    relays = [
-        'wss://relay.primal.net',
-        'wss://nos.lol',
-        'wss://relay.nostr.band',
-        'wss://relay.snort.social'
-    ]
+    const RELAYS = [
+            'wss://nos.lol',
+            'wss://relay.damus.io',
+            'wss://offchain.pub',
+            'wss://relay.primal.net'
+    ];
     for relay in relays:
         relay_manager.add_relay(relay)
     
