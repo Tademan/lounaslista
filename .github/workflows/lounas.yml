@@ -5,6 +5,11 @@ on:
     - cron: '0 * * * 1-5'
   workflow_dispatch:
 
+# Estää rinnakkaiset ajot, jotta kaksi runneria ei puske yhtä aikaa
+concurrency:
+  group: lounas-update
+  cancel-in-progress: false
+
 permissions:
   contents: write # Varmistaa, että GitHub Actions saa tallentaa lounas.html-tiedoston
 
@@ -22,18 +27,25 @@ jobs:
       - name: Asenna Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
+          cache: 'pip'
 
       - name: Asenna suomen kieli (Factorya ja PORia varten)
-        run: sudo apt-get install -y language-pack-fi
+        run: sudo apt-get update && sudo apt-get install -y language-pack-fi
 
       - name: Asenna riippuvuudet
         run: pip install -r requirements.txt
 
+      - name: Hae uusimmat muutokset ennen skriptin ajoa
+        run: git pull --rebase origin main
+
       - name: Aja skripti
+        env:
+          BOT_PRIV_KEY: ${{ secrets.BOT_PRIV_KEY }}
         run: python lounaskaikki2.py
 
       - name: Tallenna luotu HTML GitHubiin
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Automaattinen lounaslistan päivitys"
+          file_pattern: 'lounas.html'
