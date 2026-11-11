@@ -8,12 +8,12 @@ import os
 import time
 import re
 import ssl
+import hashlib
+import secrets
 from bs4 import BeautifulSoup
 
 try:
-    from nostr.event import Event
-    from nostr.key import PrivateKey
-    from nostr.relay_manager import RelayManager
+    import websocket
     NOSTR_AVAILABLE = True
 except ImportError:
     NOSTR_AVAILABLE = False
@@ -24,9 +24,12 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
 }
 
-# Laita tähän lounasbotin hex-yksityisavain. 
-# Välttämätön kiinteänä, jotta client osaa korvata vanhat saman päivän menut uudemmalla created_at -arvolla.
-BOT_PRIV_KEY = os.environ.get("BOT_PRIV_KEY")
+# Kiinteä 64-merkkinen hex-yksityisavain.
+# Varmistaa, että uudet ajot korvaavat saman päivän vanhat listat Nostrissa (created_at perusteella).
+BOT_PRIV_KEY = os.environ.get(
+    "BOT_PRIV_KEY",
+    "9814ba0c089136a88dc591dccce66df9791314cc836d3d900b25f6b91b2d0025"
+)
 
 def aseta_suomi_lokaali():
     for loc in ['fi_FI.UTF-8', 'fi_FI', 'Finnish']:
@@ -36,6 +39,57 @@ def aseta_suomi_lokaali():
         except locale.Error:
             continue
     return False
+
+# --- PUHDAS PYTHON BIP-340 (SECP256K1 SCHNORR) NOSTRIA VARTEN ---
+
+_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+_GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+_GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+
+def _point_add(P1, P2):
+    if P1 is None: return P2
+    if P2 is None: return P1
+    x1, y1 = P1
+    x2, y2 = P2
+    if x1 == x2 and y1 != y2: return None
+    if x1 == x2:
+        lam = (3 * x1 * x1 * pow(2 * y1, _P - 2, _P)) % _P
+    else:
+        lam = ((y2 - y1) * pow(x2 - x1, _P - 2, _P)) % _P
+    x3 = (lam * lam - x1 - x2) % _P
+    return (x3, (lam * (x1 - x3) - y1) % _P)
+
+def _point_mul(P, n):
+    R = None
+    for i in range(256):
+        if (n >> i) & 1:
+            R = _point_add(R, P)
+        P = _point_add(P, P)
+    return R
+
+def _tagged_hash(tag, msg):
+    tag_hash = hashlib.sha256(tag.encode()).digest()
+    return hashlib.sha256(tag_hash + tag_hash + msg).digest()
+
+def nostr_pubkey_hex(privkey_bytes):
+    d0 = int.from_bytes(privkey_bytes, 'big')
+    P = _point_mul((_GX, _GY), d0)
+    return P[0].to_bytes(32, 'big').hex()
+
+def nostr_sign_event(privkey_bytes, event_id_hex):
+    msg = bytes.fromhex(event_id_hex)
+    d0 = int.from_bytes(privkey_bytes, 'big')
+    P = _point_mul((_GX, _GY), d0)
+    d = d0 if (P[1] % 2 == 0) else _N - d0
+    aux = secrets.token_bytes(32)
+    t = (d ^ int.from_bytes(_tagged_hash("BIP0340/aux", aux), 'big')).to_bytes(32, 'big')
+    k0 = int.from_bytes(_tagged_hash("BIP0340/nonce", t + P[0].to_bytes(32, 'big') + msg), 'big') % _N
+    R = _point_mul((_GX, _GY), k0)
+    k = k0 if (R[1] % 2 == 0) else _N - k0
+    e = int.from_bytes(_tagged_hash("BIP0340/challenge", R[0].to_bytes(32, 'big') + P[0].to_bytes(32, 'big') + msg), 'big') % _N
+    sig = R[0].to_bytes(32, 'big') + ((k + e * d) % _N).to_bytes(32, 'big')
+    return sig.hex()
 
 # --- RAVINTOLAKIRJASTOT ---
 
@@ -318,42 +372,33 @@ def luo_html_raportti(data_lista, pvm):
 
 def julkaise_nostriin(data_lista, pvm_str):
     if not NOSTR_AVAILABLE:
-        print("\nVAROITUS: 'nostr'-kirjastoa ei löydy. Nostr-julkaisu ohitettu.")
-        print("Asenna ajaen: pip install nostr websocket-client")
+        print("\nVAROITUS: 'websocket-client'-kirjastoa ei löydy. Nostr-julkaisu ohitettu.")
+        print("Asenna ajaen: pip install websocket-client")
         return
 
     print("\nJulkaistaan ruokalistat Nostr-verkkoon Lounas Laituria varten...")
     
-    if BOT_PRIV_KEY:
-        pk = PrivateKey(bytes.fromhex(BOT_PRIV_KEY))
-    else:
-        pk = PrivateKey()
-        print(f"Huom: Käytetään satunnaista kertakäyttöavainta.")
-        print(f"Aseta skriptiin kiinteä avain, jotta listojen päivitykset korvautuvat oikein verkossa.")
+    privkey_bytes = bytes.fromhex(BOT_PRIV_KEY.strip())
+    pubkey = nostr_pubkey_hex(privkey_bytes)
+    print(f"Botin julkinen avain (pubkey): {pubkey}")
 
-    relay_manager = RelayManager()
-    const RELAYS = [
-            'wss://nos.lol',
-            'wss://relay.damus.io',
-            'wss://offchain.pub',
-            'wss://relay.primal.net'
-    ];
-    for relay in relays:
-        relay_manager.add_relay(relay)
-    
-    ssl_opts = {"cert_reqs": ssl.CERT_NONE} if hasattr(ssl, "CERT_NONE") else None
-    relay_manager.open_connections(ssl_opts)
-    time.sleep(4) # Varmistetaan riittävä aika yhdistää
+    relays = [
+        'wss://nos.lol',
+        'wss://relay.damus.io',
+        'wss://offchain.pub',
+        'wss://relay.primal.net'
+    ]
 
-    # Lounas Laituri vaatii päivämäärän YYYY-MM-DD -muodossa
     try:
         d, m, y = pvm_str.split('.')
         iso_date = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
     except ValueError:
         iso_date = datetime.date.today().strftime("%Y-%m-%d")
 
-    for r in data_lista:
-        # Riisutaan " (tarjotin saatavilla)", jotta nimi täsmää täydellisesti junien nimien kanssa
+    event_viestit = []
+    perus_aika = int(time.time())
+
+    for idx, r in enumerate(data_lista):
         puhdas_nimi = r['nimi'].replace(" (tarjotin saatavilla)", "").strip()
         
         tags = [
@@ -365,37 +410,73 @@ def julkaise_nostriin(data_lista, pvm_str):
 
         puhtaat_rivit = []
         for rivi in r['rivit']:
-            # Puhdistetaan riviltä HTML ja luotimerkit, Lounas Laituri renderöi tyylit itse
             puhdas = re.sub(r'<[^>]+>', '', rivi).replace('• ', '').strip()
             if puhdas:
                 tags.append(['item', puhdas])
                 puhtaat_rivit.append(puhdas)
         
-        if not puhtaat_rivit:
-            continue # Ei julkaista tyhjiä listoja reileille asti
+        if not puhtaat_rivit or (len(puhtaat_rivit) == 1 and puhtaat_rivit[0].startswith("Virhe")):
+            continue
         
-        # Muiden Nostr-clienttien varalle tekstisisältö
         content = f"Lounas: {puhdas_nimi} ({iso_date})\n\n" + "\n".join(f"- {rivi}" for rivi in puhtaat_rivit)
 
-        event = Event(
-            public_key=pk.public_key.hex(),
-            content=content,
-            kind=1,
-            tags=tags
-        )
-        pk.sign_event(event)
-        
-        event_message = event.to_message()
-        for relay_url, relay in relay_manager.relays.items():
-            try:
-                relay.publish(event_message)
-            except Exception:
-                pass # Sivuutetaan kaatuneet tai yhdistämättömät reilet hiljaa
-                
-        print(f" -> {puhdas_nimi} julkaistu.")
+        # Eriytetään aikaleimat sekunnilla, jotta relayt eivät hylkää samanaikaisia viestejä
+        created_at = perus_aika + idx
 
-    time.sleep(4) # Varmistetaan että sanomat ehtivät mennä läpi ennen sulkemista
-    relay_manager.close_connections()
+        commitment = json.dumps(
+            [0, pubkey, created_at, 1, tags, content],
+            separators=(',', ':'),
+            ensure_ascii=False
+        )
+        event_id = hashlib.sha256(commitment.encode('utf-8')).hexdigest()
+        sig = nostr_sign_event(privkey_bytes, event_id)
+
+        event_obj = {
+            "id": event_id,
+            "pubkey": pubkey,
+            "created_at": created_at,
+            "kind": 1,
+            "tags": tags,
+            "content": content,
+            "sig": sig
+        }
+        event_viestit.append((puhdas_nimi, event_id, json.dumps(["EVENT", event_obj], ensure_ascii=False)))
+
+    if not event_viestit:
+        print(" -> Ei julkaistavia listoja.")
+        return
+
+    ssl_opts = {"cert_reqs": ssl.CERT_NONE} if hasattr(ssl, "CERT_NONE") else {}
+    ws_headers = ["User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)"]
+
+    for relay_url in relays:
+        try:
+            ws = websocket.create_connection(relay_url, timeout=8, sslopt=ssl_opts, header=ws_headers)
+            ws.settimeout(4.0)
+            hyvaksytyt = 0
+            
+            for ravintola_nimi, ev_id, msg in event_viestit:
+                ws.send(msg)
+                try:
+                    while True:
+                        vastaus_raw = ws.recv()
+                        vastaus = json.loads(vastaus_raw)
+                        if vastaus[0] == "OK" and vastaus[1] == ev_id:
+                            if vastaus[2] is True:
+                                hyvaksytyt += 1
+                            else:
+                                print(f"    [!] {relay_url} hylkäsi ({ravintola_nimi}): {vastaus[3]}")
+                            break
+                        elif vastaus[0] == "NOTICE":
+                            print(f"    [Notice] {relay_url}: {vastaus[1]}")
+                except Exception:
+                    pass
+                time.sleep(0.25)
+
+            ws.close()
+            print(f" -> {relay_url}: Hyväksytty {hyvaksytyt}/{len(event_viestit)} listaa.")
+        except Exception as e:
+            print(f" -> Virhe yhdistettäessä relaylle {relay_url}: {e}")
 
 # --- PÄÄOHJELMA ---
 
