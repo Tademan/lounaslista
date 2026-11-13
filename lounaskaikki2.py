@@ -340,6 +340,9 @@ def luo_html_raportti(data_lista, pvm):
     </script>
 </head>
 <body>
+    <div style="text-align: center; margin-top: 20px;">
+        <a href="https://tademan.github.io/lounaslista/lounaslistat.html" style="font-weight: bold; color: #3498db; text-decoration: none; font-size: 1.1em;">Siirry parempaan versioon &rarr;</a>
+    </div>
     <h1>🍴 Lounaslistat Pitäjänmäki {pvm}</h1>
     <div class="timestamp">Päivitetty (skripti ajettu): {pvm} klo {ajoaika}</div>
     <div class="grid">"""
